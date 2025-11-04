@@ -1,5 +1,6 @@
 import { QuizResult, QuizQuestion } from '../types';
 import { supabase } from './authService';
+import { getOpenAIKey, getGeminiKey } from './apiKeysService';
 
 export interface TopicProgress {
   topic: string;
@@ -27,9 +28,16 @@ export async function categorizeQuestionByTopic(
   
   // Use OpenAI first, fallback to Gemini
   try {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      throw new Error('OPENAI_API_KEY not configured');
+    // Try to get API key from Supabase secrets first, fallback to env
+    let openaiApiKey: string;
+    try {
+      openaiApiKey = await getOpenAIKey();
+    } catch (error) {
+      // Fallback to environment variable
+      openaiApiKey = process.env.OPENAI_API_KEY || '';
+      if (!openaiApiKey) {
+        throw new Error('OPENAI_API_KEY not configured');
+      }
     }
     const openai = new OpenAI({ 
       apiKey: openaiApiKey,
@@ -67,9 +75,15 @@ ${documentContent}
     return topic;
   } catch (error) {
     // Fallback to Gemini
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      throw new Error('GEMINI_API_KEY not configured');
+    let geminiApiKey: string;
+    try {
+      geminiApiKey = await getGeminiKey();
+    } catch (error) {
+      // Fallback to environment variable
+      geminiApiKey = process.env.GEMINI_API_KEY || '';
+      if (!geminiApiKey) {
+        throw new Error('GEMINI_API_KEY not configured');
+      }
     }
     const ai = new GoogleGenAI({ apiKey: geminiApiKey });
     const geminiModel = 'gemini-2.5-flash';
@@ -111,9 +125,16 @@ export async function categorizeQuestionsByTopic(
   
   // Use OpenAI first, fallback to Gemini - single API call for all questions
   try {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      throw new Error('OPENAI_API_KEY not configured');
+    // Try to get API key from Supabase secrets first, fallback to env
+    let openaiApiKey: string;
+    try {
+      openaiApiKey = await getOpenAIKey();
+    } catch (error) {
+      // Fallback to environment variable
+      openaiApiKey = process.env.OPENAI_API_KEY || '';
+      if (!openaiApiKey) {
+        throw new Error('OPENAI_API_KEY not configured');
+      }
     }
     const openai = new OpenAI({ 
       apiKey: openaiApiKey,
@@ -205,9 +226,15 @@ ${documentContent}
   } catch (error) {
     // Fallback to Gemini
     try {
-      const geminiApiKey = process.env.GEMINI_API_KEY;
-      if (!geminiApiKey) {
-        throw new Error('GEMINI_API_KEY not configured');
+      let geminiApiKey: string;
+      try {
+        geminiApiKey = await getGeminiKey();
+      } catch (error) {
+        // Fallback to environment variable
+        geminiApiKey = process.env.GEMINI_API_KEY || '';
+        if (!geminiApiKey) {
+          throw new Error('GEMINI_API_KEY not configured');
+        }
       }
       const ai = new GoogleGenAI({ apiKey: geminiApiKey });
       const geminiModel = 'gemini-2.5-flash';
