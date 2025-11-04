@@ -63,7 +63,22 @@ The function will return:
 
 ## Fallback
 
-If the Supabase Edge Function fails or is not available, the code will fall back to reading from environment variables (`process.env.OPENAI_API_KEY` and `process.env.GEMINI_API_KEY`).
+If the Supabase Edge Function fails or is not available (e.g., CORS issues in production), the code will automatically fall back to reading from environment variables (`process.env.OPENAI_API_KEY` and `process.env.GEMINI_API_KEY`).
+
+### Setting Environment Variables in Netlify (If Edge Function Has CORS Issues)
+
+If you're experiencing CORS errors with the Edge Function in production, you can use environment variables directly:
+
+1. Go to your [Netlify Dashboard](https://app.netlify.com/)
+2. Select your site
+3. Go to **Site settings** → **Environment variables**
+4. Add the following environment variables:
+   - **Key:** `OPENAI_API_KEY`
+     - **Value:** Your OpenAI API Key
+   - **Key:** `GEMINI_API_KEY`
+     - **Value:** Your Google Gemini API Key
+
+The application will automatically detect when the Edge Function is unavailable and use these environment variables instead.
 
 ## Security
 
