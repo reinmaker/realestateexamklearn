@@ -815,7 +815,7 @@ const App: React.FC = () => {
     }
   }, [documentContent, topicProgress]);
 
-  const handleLoginSuccess = useCallback((user: User) => {
+  const handleLoginSuccess = useCallback(async (user: User) => {
     setCurrentUser(user);
     regenerateFlashcards();
     regenerateQuiz();
@@ -823,7 +823,7 @@ const App: React.FC = () => {
     try {
       // Use the user parameter directly since currentUser state might not be updated yet
       const userName = user?.name || user?.email?.split('@')[0] || undefined;
-      const newChat = createChatSession(documentContent, userName);
+      const newChat = await createChatSession(documentContent, userName);
       const greeting = userName 
         ? `היי ${userName}, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?`
         : 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
@@ -852,7 +852,7 @@ const App: React.FC = () => {
     let currentUserForInit: User | null = null;
 
     // Helper function to initialize app state
-    const initializeAppState = (user: User | null) => {
+    const initializeAppState = async (user: User | null) => {
       if (!isInitialized && user) {
         isInitialized = true;
         currentUserForInit = user;
@@ -865,7 +865,7 @@ const App: React.FC = () => {
         }
         try {
           const userName = user?.name || user?.email?.split('@')[0] || undefined;
-          const newChat = createChatSession(documentContent, userName);
+          const newChat = await createChatSession(documentContent, userName);
           const greeting = userName 
             ? `היי ${userName}, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?`
             : 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';

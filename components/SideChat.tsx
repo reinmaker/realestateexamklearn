@@ -45,7 +45,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
         setHeaderTitle('הסבר נוסף');
 
         try {
-            const newChat = createExplanationChatSession(documentContent, context, userName);
+            const newChat = await createExplanationChatSession(documentContent, context, userName);
             // Handle both OpenAI and Gemini chat sessions
             const initialResponse = newChat.type === 'openai' 
               ? await continueChat(newChat, "אנא הסבר את הנושא לעומק.", [])

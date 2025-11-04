@@ -1,28 +1,80 @@
 import OpenAI from 'openai';
 import { GoogleGenAI, Type, GenerateContentResponse, Chat, Modality } from "@google/genai";
 import { QuizQuestion, Flashcard, ChatMessage, QuizResult, AnalysisResult } from '../types';
+import { getOpenAIKey, getGeminiKey } from './apiKeysService';
+
+// Cache for OpenAI client to avoid recreating it
+let openAIClient: OpenAI | null = null;
+let openAIKey: string | null = null;
+
+// Cache for Gemini client to avoid recreating it
+let geminiClient: GoogleGenAI | null = null;
+let geminiKey: string | null = null;
 
 // Initialize OpenAI client
-const getOpenAI = () => {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not configured');
+const getOpenAI = async (): Promise<OpenAI> => {
+  try {
+    // Try to get API key from Supabase secrets first
+    const apiKey = await getOpenAIKey();
+    
+    // If key changed, recreate client
+    if (!openAIClient || openAIKey !== apiKey) {
+      openAIKey = apiKey;
+      openAIClient = new OpenAI({ 
+        apiKey,
+        dangerouslyAllowBrowser: true 
+      });
+    }
+    
+    return openAIClient;
+  } catch (error) {
+    // Fallback to environment variable if Supabase fetch fails
+    console.warn('Failed to fetch OpenAI key from Supabase, falling back to env:', error);
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY is not configured in Supabase secrets or environment variables');
+    }
+    
+    if (!openAIClient || openAIKey !== apiKey) {
+      openAIKey = apiKey;
+      openAIClient = new OpenAI({ 
+        apiKey,
+        dangerouslyAllowBrowser: true 
+      });
+    }
+    
+    return openAIClient;
   }
-  // Note: dangerouslyAllowBrowser is needed for browser environments
-  // The API key is already exposed in the client-side code, so this is expected
-  return new OpenAI({ 
-    apiKey,
-    dangerouslyAllowBrowser: true 
-  });
 };
 
 // Initialize Gemini client
-const getGemini = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured');
+const getGemini = async (): Promise<GoogleGenAI> => {
+  try {
+    // Try to get API key from Supabase secrets first
+    const apiKey = await getGeminiKey();
+    
+    // If key changed, recreate client
+    if (!geminiClient || geminiKey !== apiKey) {
+      geminiKey = apiKey;
+      geminiClient = new GoogleGenAI({ apiKey });
+    }
+    
+    return geminiClient;
+  } catch (error) {
+    // Fallback to environment variable if Supabase fetch fails
+    console.warn('Failed to fetch Gemini key from Supabase, falling back to env:', error);
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY is not configured in Supabase secrets or environment variables');
+    }
+    
+    if (!geminiClient || geminiKey !== apiKey) {
+      geminiKey = apiKey;
+      geminiClient = new GoogleGenAI({ apiKey });
+    }
+    
+    return geminiClient;
   }
-  return new GoogleGenAI({ apiKey });
 };
 
 const geminiModel = 'gemini-2.5-flash';
@@ -104,7 +156,7 @@ async function tryWithFallback<T>(
 
 // Quiz generation with OpenAI
 async function generateQuizOpenAI(documentContent: string, count: number): Promise<QuizQuestion[]> {
-  const openai = getOpenAI();
+  const openai = await getOpenAI();
   
   const prompt = `אתה מומחה ביצירת שאלות למבחן הרישוי למתווכי מקרקעין בישראל. משימתך היא ליצור סט חדש של בדיוק ${count} שאלות ייחודיות בפורמט מבחן אמריקאי. השאלות צריכות להיות דומות בסגנון ובדרגת קושי למבחנים קודמים שמופיעים במסמך המצורף. השאלות החדשות צריכות לבחון את אותם עקרונות משפטיים מרכזיים אך להציג אותם בתרחישים חדשים. לכל שאלה, ספק ארבע אפשרויות תשובה, את האינדקס של התשובה הנכונה, והסבר קצר במיוחד, בן משפט אחד בלבד. ההסבר חייב להיות פשוט, ישיר ובגובה העיניים. חשוב ביותר: חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד לא בהדגשה (כלומר, ללא כוכביות **). אל תעתיק או תנסח מחדש שאלות מהמסמך שסופק. כל התוכן חייב להיות בעברית.
 
@@ -178,7 +230,7 @@ ${documentContent}
 
 // Quiz generation with Gemini (fallback)
 async function generateQuizGemini(documentContent: string, count: number): Promise<QuizQuestion[]> {
-  const ai = getGemini();
+  const ai = await getGemini();
   
   const quizSchema = {
     type: Type.ARRAY,
@@ -246,7 +298,7 @@ async function determineAnswerAndExplanationOpenAI(
   documentContent: string
 ): Promise<{ correctAnswerIndex: number; explanation: string }> {
   try {
-    const openai = getOpenAI();
+    const openai = await getOpenAI();
     
     const prompt = `אתה מומחה במבחן הרישוי למתווכי מקרקעין בישראל. משימתך היא לקבוע את התשובה הנכונה לשאלה ולהסביר מדוע.
 
@@ -318,7 +370,7 @@ async function determineAnswerAndExplanationGemini(
   options: string[],
   documentContent: string
 ): Promise<{ correctAnswerIndex: number; explanation: string }> {
-  const ai = getGemini();
+  const ai = await getGemini();
   
   const answerSchema = {
     type: Type.OBJECT,
@@ -447,7 +499,7 @@ ${documentContent}
 
 // Flashcard generation with Gemini (fallback)
 async function generateFlashcardsGemini(documentContent: string, count: number): Promise<Flashcard[]> {
-  const ai = getGemini();
+  const ai = await getGemini();
   
   const prompt = `אתה מורה מומחה למבחן התיווך הישראלי. תפקידך הוא לזהות את עקרונות הליבה המשפטיים, ההגדרות והכללים המרכזיים הנבחנים במסמך המצורף. בהתבסס על כך, צור סט של ${count} כרטיסיות לימוד בפורמט של שאלה-תשובה. כל כרטיסייה צריכה להתמקד במושג אחד חשוב. השאלות צריכות להיות ברורות. התשובות חייבות להיות קצרות ותמציתיות באופן קיצוני - משפט קצר אחד או שניים לכל היותר. יש לנסח אותן בשפה פשוטה וישירה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד לא בהדגשה (ללא כוכביות **). אל תהפוך את שאלות המבחן הקיימות לכרטיסיות; במקום זאת, זקק מהן את הידע המשפטי הבסיסי. כל התוכן חייב להיות בעברית.
 
@@ -494,9 +546,11 @@ function createChatSessionOpenAI(documentContent: string, userName?: string): an
   const name = userName || 'חבר';
   const systemInstruction = `אתה דניאל, מורה פרטי ידידותי וסבלני למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על המסמך שסופק. דבר עם ${name} בגובה העיניים ובאופן ישיר וחם. השתמש בשם ${name} כשאתה פונה אליו/ה. תשובותיך חייבות להיות קצרות מאוד ותמציתיות. הימנע מהסברים ארוכים. חשוב ביותר: אל תשתמש בשום פנים ואופן בעיצוב טקסט כמו הדגשה (ללא **). 
 
-חשוב מאוד - הגבלות:
-- ענה רק על שאלות הקשורות לחומר הלימוד במבחן התיווך (דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי, וכל נושא הקשור למבחן הרישוי למתווכי מקרקעין בישראל).
-- אם ${name} שואל שאלה שאינה קשורה לחומר הלימוד (למשל, שאלות כלליות, מתמטיקה, היסטוריה, או כל נושא אחר), ענה בנימוס: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחומר הלימוד של מבחן התיווך. יש לך שאלה על חומר הלימוד?"
+חשוב מאוד - הגבלות נוקשות:
+- ענה רק על שאלות הקשורות ישירות לחוקי מקרקעין בישראל, למבחן הרישוי למתווכי מקרקעין, ולשאלות הבחינה.
+- הנושאים המורשים בלבד: דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי מתווכים, חוק המקרקעין, חוק המתווכים, שאלות מהבחינות, והחומר הנלמד במבחן הרישוי.
+- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות, או כל נושא אחר), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל. יש לך שאלה על חומר הלימוד?"
+- אין לענות על שאלות שאינן קשורות למבחן התיווך ולחוקי המקרקעין, גם אם הן נראות מעניינות.
 - אם התשובה לא נמצאת במסמך, ציין זאת בבירור ונסה להשיב על בסיס הידע הכללי מהמסמך.
 
 ענה על שאלותיו של ${name}, הבהר מושגים ועזור לו/ה להבין את החומר הנלמד מהבחינות. השב תמיד בעברית. המסמך לעיונך:
@@ -514,14 +568,16 @@ ${documentContent}
 }
 
 // Create Gemini chat session (fallback)
-function createChatSessionGemini(documentContent: string, userName?: string): Chat {
-  const ai = getGemini();
+async function createChatSessionGemini(documentContent: string, userName?: string): Promise<Chat> {
+  const ai = await getGemini();
   const name = userName || 'חבר';
   const systemInstruction = `אתה דניאל, מורה פרטי ידידותי וסבלני למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על המסמך שסופק. דבר עם ${name} בגובה העיניים ובאופן ישיר וחם. השתמש בשם ${name} כשאתה פונה אליו/ה. תשובותיך חייבות להיות קצרות מאוד ותמציתיות. הימנע מהסברים ארוכים. חשוב ביותר: אל תשתמש בשום פנים ואופן בעיצוב טקסט כמו הדגשה (ללא **). 
 
-חשוב מאוד - הגבלות:
-- ענה רק על שאלות הקשורות לחומר הלימוד במבחן התיווך (דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי, וכל נושא הקשור למבחן הרישוי למתווכי מקרקעין בישראל).
-- אם ${name} שואל שאלה שאינה קשורה לחומר הלימוד (למשל, שאלות כלליות, מתמטיקה, היסטוריה, או כל נושא אחר), ענה בנימוס: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחומר הלימוד של מבחן התיווך. יש לך שאלה על חומר הלימוד?"
+חשוב מאוד - הגבלות נוקשות:
+- ענה רק על שאלות הקשורות ישירות לחוקי מקרקעין בישראל, למבחן הרישוי למתווכי מקרקעין, ולשאלות הבחינה.
+- הנושאים המורשים בלבד: דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי מתווכים, חוק המקרקעין, חוק המתווכים, שאלות מהבחינות, והחומר הנלמד במבחן הרישוי.
+- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות, או כל נושא אחר), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל. יש לך שאלה על חומר הלימוד?"
+- אין לענות על שאלות שאינן קשורות למבחן התיווך ולחוקי המקרקעין, גם אם הן נראות מעניינות.
 - אם התשובה לא נמצאת במסמך, ציין זאת בבירור ונסה להשיב על בסיס הידע הכללי מהמסמך.
 
 ענה על שאלותיו של ${name}, הבהר מושגים ועזור לו/ה להבין את החומר הנלמד מהבחינות. השב תמיד בעברית. המסמך לעיונך:
@@ -539,18 +595,18 @@ ${documentContent}
   return chat;
 }
 
-export function createChatSession(documentContent: string, userName?: string): Chat {
+export async function createChatSession(documentContent: string, userName?: string): Promise<Chat> {
   // Try OpenAI first, fallback to Gemini
   try {
-    return createChatSessionOpenAI(documentContent, userName) as any;
+    return await createChatSessionOpenAI(documentContent, userName) as any;
   } catch (error) {
     console.warn('Failed to create OpenAI chat session, using Gemini:', error);
-    return createChatSessionGemini(documentContent, userName);
+    return await createChatSessionGemini(documentContent, userName);
   }
 }
 
 // Create OpenAI explanation chat session (primary)
-function createExplanationChatSessionOpenAI(documentContent: string, context: string, userName?: string): any {
+async function createExplanationChatSessionOpenAI(documentContent: string, context: string, userName?: string): Promise<any> {
   const name = userName || 'חבר';
   const systemInstruction = `אתה דניאל, מורה פרטי מומחה למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על חומר הלימוד שסופק. ${name} ביקש הסבר נוסף על הנושא הבא:
 ---
@@ -558,8 +614,9 @@ ${context}
 ---
 
 חשוב מאוד - הגבלות:
-- הסבר רק נושאים הקשורים לחומר הלימוד במבחן התיווך (דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי, וכל נושא הקשור למבחן הרישוי למתווכי מקרקעין בישראל).
-- אם הנושא לא קשור לחומר הלימוד, ענה בנימוס: "סליחה, אני יכול לעזור לך רק עם נושאים הקשורים לחומר הלימוד של מבחן התיווך."
+- הסבר רק נושאים הקשורים ישירות לחוקי מקרקעין בישראל ולמבחן הרישוי למתווכי מקרקעין (דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי, חוק המקרקעין, חוק המתווכים, וכל נושא מהחומר הנלמד במבחן).
+- אם ${name} שואל שאלה על הנושא שהוצג לעיל (שאלה מהמבחן, הסבר על חומר הלימוד, או כל נושא הקשור לחוקי מקרקעין), ענה עליה בהרחבה.
+- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם נושאים הקשורים לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."
 
 הסבר את הנושא ל${name} בצורה ברורה ותמציתית ביותר. השתמש בשפה פשוטה ודוגמאות קצרות. הימנע מפרטים מיותרים. השתמש בשם ${name} כשאתה פונה אליו/ה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד הדגשה (ללא **). התשובה צריכה להיות קצרה וישירה. השב תמיד בעברית.
 
@@ -578,8 +635,8 @@ ${documentContent}
 }
 
 // Create Gemini explanation chat session (fallback)
-function createExplanationChatSessionGemini(documentContent: string, context: string, userName?: string): Chat {
-  const ai = getGemini();
+async function createExplanationChatSessionGemini(documentContent: string, context: string, userName?: string): Promise<Chat> {
+  const ai = await getGemini();
   const name = userName || 'חבר';
   const systemInstruction = `אתה דניאל, מורה פרטי מומחה למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על חומר הלימוד שסופק. ${name} ביקש הסבר נוסף על הנושא הבא:
 ---
@@ -587,8 +644,9 @@ ${context}
 ---
 
 חשוב מאוד - הגבלות:
-- הסבר רק נושאים הקשורים לחומר הלימוד במבחן התיווך (דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי, וכל נושא הקשור למבחן הרישוי למתווכי מקרקעין בישראל).
-- אם הנושא לא קשור לחומר הלימוד, ענה בנימוס: "סליחה, אני יכול לעזור לך רק עם נושאים הקשורים לחומר הלימוד של מבחן התיווך."
+- הסבר רק נושאים הקשורים ישירות לחוקי מקרקעין בישראל ולמבחן הרישוי למתווכי מקרקעין (דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי, חוק המקרקעין, חוק המתווכים, וכל נושא מהחומר הנלמד במבחן).
+- אם ${name} שואל שאלה על הנושא שהוצג לעיל (שאלה מהמבחן, הסבר על חומר הלימוד, או כל נושא הקשור לחוקי מקרקעין), ענה עליה בהרחבה.
+- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם נושאים הקשורים לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."
 
 הסבר את הנושא ל${name} בצורה ברורה ותמציתית ביותר. השתמש בשפה פשוטה ודוגמאות קצרות. הימנע מפרטים מיותרים. השתמש בשם ${name} כשאתה פונה אליו/ה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד הדגשה (ללא **). התשובה צריכה להיות קצרה וישירה. השב תמיד בעברית.
 
@@ -606,13 +664,13 @@ ${documentContent}
   return chat;
 }
 
-export function createExplanationChatSession(documentContent: string, context: string, userName?: string): Chat {
+export async function createExplanationChatSession(documentContent: string, context: string, userName?: string): Promise<Chat> {
   // Try OpenAI first, fallback to Gemini
   try {
-    return createExplanationChatSessionOpenAI(documentContent, context, userName) as any;
+    return await createExplanationChatSessionOpenAI(documentContent, context, userName) as any;
   } catch (error) {
     console.warn('Failed to create OpenAI explanation chat session, using Gemini:', error);
-    return createExplanationChatSessionGemini(documentContent, context, userName);
+    return await createExplanationChatSessionGemini(documentContent, context, userName);
   }
 }
 
@@ -671,7 +729,7 @@ ${documentContent}
   return tryWithFallback(
     async () => {
       // OpenAI implementation
-      const openai = getOpenAI();
+      const openai = await getOpenAI();
       
       const response = await openai.chat.completions.create({
         model: openAIModel,
@@ -725,7 +783,7 @@ ${documentContent}
     },
     async () => {
       // Gemini fallback
-      const ai = getGemini();
+      const ai = await getGemini();
       
       const analysisSchema = {
         type: Type.OBJECT,
@@ -766,12 +824,19 @@ ${documentContent}
 
 // Continue chat with OpenAI
 async function continueChatOpenAI(chat: any, message: string, history: ChatMessage[]): Promise<string> {
-  const openai = getOpenAI();
+  const openai = await getOpenAI();
   
   // Enhance system instruction with topic restriction reminder
-  const enhancedSystemInstruction = `${chat.systemInstruction}
+  // For explanation chat sessions, the context is always a quiz question, so be more permissive
+  const isExplanationChat = chat.context && (chat.context.includes('שאלה:') || chat.context.includes('תשובה נכונה:'));
+  
+  const enhancedSystemInstruction = isExplanationChat 
+    ? `${chat.systemInstruction}
 
-תזכורת חשובה: אם ההודעה של המשתמש לא קשורה לחומר הלימוד של מבחן התיווך (דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי, וכל נושא הקשור למבחן הרישוי למתווכי מקרקעין בישראל), ענה בנימוס: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחומר הלימוד של מבחן התיווך. יש לך שאלה על חומר הלימוד?"`;
+תזכורת חשובה: המשתמש שואל על שאלה מהמבחן שהוצגה לעיל. ענה על שאלותיו בהרחבה - הן על השאלה הספציפית, על הנושאים הקשורים, על חוקי מקרקעין, ועל כל נושא הקשור למבחן הרישוי למתווכי מקרקעין. רק אם השאלה לא קשורה כלל לחוקי מקרקעין או למבחן (למשל: מתמטיקה כללית, היסטוריה, פוליטיקה, חדשות), ענה: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל. יש לך שאלה על חומר הלימוד?"`
+    : `${chat.systemInstruction}
+
+תזכורת חשובה: אם ההודעה של המשתמש קשורה לחוקי מקרקעין, למבחן הרישוי למתווכי מקרקעין, לשאלות מהבחינה, או לחומר הלימוד, ענה עליה בהרחבה. אם ההודעה לא קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל. יש לך שאלה על חומר הלימוד?"`;
   
   // Convert history to OpenAI format
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -820,10 +885,10 @@ export async function continueChat(chat: Chat | any, message: string, history: C
   if (chat && typeof chat === 'object' && chat.type === 'openai') {
     return tryWithFallback(
       () => continueChatOpenAI(chat, message, history),
-      () => {
+      async () => {
         // Fallback: create Gemini chat and continue
-        const geminiChat = createChatSessionGemini(chat.documentContent, chat.userName);
-        return continueChatGemini(geminiChat, message, history);
+        const geminiChat = await createChatSessionGemini(chat.documentContent, chat.userName);
+        return await continueChatGemini(geminiChat, message, history);
       },
       "נכשל בשליחת ההודעה."
     );
@@ -837,7 +902,7 @@ export async function continueChat(chat: Chat | any, message: string, history: C
     },
     async () => {
       // Fallback: create new OpenAI chat and continue
-      const openaiChat = createChatSessionOpenAI(chat.documentContent || '', chat.userName);
+      const openaiChat = await createChatSessionOpenAI(chat.documentContent || '', chat.userName);
       return await continueChatOpenAI(openaiChat, message, history);
     },
     "נכשל בשליחת ההודעה."
@@ -846,7 +911,7 @@ export async function continueChat(chat: Chat | any, message: string, history: C
 
 // Hint generation with OpenAI
 async function generateHintOpenAI(question: string, answer: string, documentContent: string, userName?: string): Promise<string> {
-  const openai = getOpenAI();
+  const openai = await getOpenAI();
   const name = userName || 'חבר';
   
   const prompt = `אתה מורה פרטי למבחן התיווך הישראלי. ${name} מתקשה בשאלה הבאה:
@@ -883,7 +948,7 @@ ${documentContent}
 
 // Hint generation with Gemini (fallback)
 async function generateHintGemini(question: string, answer: string, documentContent: string, userName?: string): Promise<string> {
-  const ai = getGemini();
+  const ai = await getGemini();
   const name = userName || 'חבר';
   
   const prompt = `אתה מורה פרטי למבחן התיווך הישראלי. ${name} מתקשה בשאלה הבאה:
@@ -917,7 +982,7 @@ export async function generateHint(question: string, answer: string, documentCon
 export async function generateSpeech(textToSpeak: string): Promise<string> {
   // Use OpenAI TTS (text-to-speech) API
   try {
-    const openai = getOpenAI();
+    const openai = await getOpenAI();
     
     console.log('Generating speech with OpenAI TTS for text:', textToSpeak.substring(0, 50));
     
@@ -979,7 +1044,7 @@ export async function generateSpeech(textToSpeak: string): Promise<string> {
 
 // Targeted flashcard generation with OpenAI
 async function generateTargetedFlashcardsOpenAI(weaknesses: string[], documentContent: string, count: number): Promise<Flashcard[]> {
-  const openai = getOpenAI();
+  const openai = await getOpenAI();
   const weaknessesText = weaknesses.join(', ');
   
   // Add randomization seed to prompt for variety
@@ -1048,7 +1113,7 @@ ${documentContent}
 
 // Targeted flashcard generation with Gemini (fallback)
 async function generateTargetedFlashcardsGemini(weaknesses: string[], documentContent: string, count: number): Promise<Flashcard[]> {
-  const ai = getGemini();
+  const ai = await getGemini();
   const weaknessesText = weaknesses.join(', ');
   
   const prompt = `אתה מורה מומחה למבחן התיווך הישראלי. המשתמש מתקשה בנושאים הבאים: ${weaknessesText}
@@ -1095,7 +1160,7 @@ export async function generateTargetedFlashcards(weaknesses: string[], documentC
 
 // Targeted quiz generation with OpenAI
 async function generateTargetedQuizOpenAI(weaknesses: string[], documentContent: string, count: number): Promise<QuizQuestion[]> {
-  const openai = getOpenAI();
+  const openai = await getOpenAI();
   const weaknessesText = weaknesses.join(', ');
   
   const prompt = `אתה מומחה ביצירת שאלות למבחן הרישוי למתווכי מקרקעין בישראל. המשתמש מתקשה בנושאים הבאים: ${weaknessesText}
@@ -1172,7 +1237,7 @@ ${documentContent}
 
 // Targeted quiz generation with Gemini (fallback)
 async function generateTargetedQuizGemini(weaknesses: string[], documentContent: string, count: number): Promise<QuizQuestion[]> {
-  const ai = getGemini();
+  const ai = await getGemini();
   const weaknessesText = weaknesses.join(', ');
   
   const prompt = `אתה מומחה ביצירת שאלות למבחן הרישוי למתווכי מקרקעין בישראל. המשתמש מתקשה בנושאים הבאים: ${weaknessesText}
