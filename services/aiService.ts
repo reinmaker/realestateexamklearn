@@ -17,6 +17,11 @@ const getOpenAI = async (): Promise<OpenAI> => {
     // Try to get API key from Supabase secrets first
     const apiKey = await getOpenAIKey();
     
+    // If apiKey is null, Edge Function is unavailable, fall through to env
+    if (!apiKey) {
+      throw new Error('EDGE_FUNCTION_UNAVAILABLE');
+    }
+    
     // If key changed, recreate client
     if (!openAIClient || openAIKey !== apiKey) {
       openAIKey = apiKey;
@@ -29,7 +34,10 @@ const getOpenAI = async (): Promise<OpenAI> => {
     return openAIClient;
   } catch (error) {
     // Fallback to environment variable if Supabase fetch fails
-    console.warn('Failed to fetch OpenAI key from Supabase, falling back to env:', error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (!errorMsg.includes('EDGE_FUNCTION_UNAVAILABLE')) {
+      console.warn('Failed to fetch OpenAI key from Supabase, falling back to env:', error);
+    }
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY is not configured in Supabase secrets or environment variables');
@@ -53,6 +61,11 @@ const getGemini = async (): Promise<GoogleGenAI> => {
     // Try to get API key from Supabase secrets first
     const apiKey = await getGeminiKey();
     
+    // If apiKey is null, Edge Function is unavailable, fall through to env
+    if (!apiKey) {
+      throw new Error('EDGE_FUNCTION_UNAVAILABLE');
+    }
+    
     // If key changed, recreate client
     if (!geminiClient || geminiKey !== apiKey) {
       geminiKey = apiKey;
@@ -62,7 +75,10 @@ const getGemini = async (): Promise<GoogleGenAI> => {
     return geminiClient;
   } catch (error) {
     // Fallback to environment variable if Supabase fetch fails
-    console.warn('Failed to fetch Gemini key from Supabase, falling back to env:', error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (!errorMsg.includes('EDGE_FUNCTION_UNAVAILABLE')) {
+      console.warn('Failed to fetch Gemini key from Supabase, falling back to env:', error);
+    }
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       throw new Error('GEMINI_API_KEY is not configured in Supabase secrets or environment variables');
