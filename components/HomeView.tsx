@@ -1,0 +1,293 @@
+import React, { useMemo, useState, useEffect } from 'react';
+import { QuizResult, ViewType, AnalysisResult } from '../types';
+import { SparklesIcon, QuizIcon, FlashcardsIcon, ExamIcon } from './icons';
+import { resendConfirmationEmail } from '../services/authService';
+import { UserStats } from '../services/userStatsService';
+
+interface HomeViewProps {
+  quizHistory: QuizResult[];
+  examHistory: QuizResult[];
+  setView: (view: ViewType) => void;
+  analysis: AnalysisResult | null;
+  isAnalyzing: boolean;
+  createTargetedFlashcards: (weaknesses: string[]) => Promise<void>;
+  createTargetedQuiz: (weaknesses: string[]) => Promise<void>;
+  emailConfirmed?: boolean;
+  userEmail?: string;
+  userStats?: UserStats | null; // Add DB stats
+}
+
+const StatCard: React.FC<{ title: string; value: string | number; description: string }> = ({ title, value, description }) => (
+    <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm">
+        <p className="text-sm text-slate-500">{title}</p>
+        <p className="text-3xl font-bold text-sky-600 mt-1">{value}</p>
+        <p className="text-xs text-slate-500 mt-2">{description}</p>
+    </div>
+);
+
+const ProgressCircle: React.FC<{ percentage: number }> = ({ percentage }) => {
+    const radius = 50;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+    return (
+        <div className="relative w-40 h-40">
+            <svg className="w-full h-full" viewBox="0 0 120 120">
+                <circle className="text-slate-200" strokeWidth="10" stroke="currentColor" fill="transparent" r={radius} cx="60" cy="60" />
+                <circle
+                    className="text-sky-500"
+                    strokeWidth="10"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={strokeDashoffset}
+                    strokeLinecap="round"
+                    stroke="currentColor"
+                    fill="transparent"
+                    r={radius}
+                    cx="60"
+                    cy="60"
+                    transform="rotate(-90 60 60)"
+                    style={{ transition: 'stroke-dashoffset 0.5s ease-in-out' }}
+                />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-3xl font-bold text-slate-800">{percentage.toFixed(0)}%</span>
+            </div>
+        </div>
+    );
+};
+
+const ActionCard: React.FC<{ title: string; description: string; icon: React.ReactElement<{ className?: string }>; onClick: () => void; disabled?: boolean }> = ({ title, description, icon, onClick, disabled = false }) => (
+    <button 
+      onClick={onClick} 
+      disabled={disabled}
+      className={`bg-white p-6 rounded-lg border border-slate-200 shadow-sm text-right transition-all duration-300 flex flex-col items-start h-full w-full focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 ${
+        disabled 
+          ? 'opacity-50 cursor-not-allowed grayscale' 
+          : 'hover:border-sky-400 hover:shadow-md'
+      }`}
+    >
+        <div className={`p-3 rounded-full mb-4 ${disabled ? 'bg-slate-100' : 'bg-sky-100'}`}>
+            {React.cloneElement(icon, { className: `h-6 w-6 ${disabled ? 'text-slate-400' : 'text-sky-600'}` })}
+        </div>
+        <h3 className={`text-lg font-bold mb-2 ${disabled ? 'text-slate-400' : 'text-slate-800'}`}>{title}</h3>
+        <p className={`text-sm flex-grow ${disabled ? 'text-slate-400' : 'text-slate-600'}`}>{description}</p>
+        <span className={`text-sm font-semibold mt-4 self-end ${disabled ? 'text-slate-400' : 'text-sky-600'}`}>
+          {disabled ? 'אימות נדרש' : 'בצע פעולה ←'}
+        </span>
+    </button>
+);
+
+
+const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, analysis, isAnalyzing, createTargetedFlashcards, createTargetedQuiz, emailConfirmed = true, userEmail, userStats }) => {
+  const allHistory = useMemo(() => [...quizHistory, ...examHistory], [quizHistory, examHistory]);
+  const [isGeneratingTargeted, setIsGeneratingTargeted] = useState<'flashcards' | 'quiz' | null>(null);
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('HomeView received props:', {
+      quizHistoryLength: quizHistory?.length || 0,
+      examHistoryLength: examHistory?.length || 0,
+      allHistoryLength: allHistory?.length || 0,
+      userStats: userStats,
+      quizHistoryType: Array.isArray(quizHistory) ? 'array' : typeof quizHistory,
+      examHistoryType: Array.isArray(examHistory) ? 'array' : typeof examHistory,
+      sampleQuizItem: quizHistory?.[0] ? {
+        hasQuestion: !!quizHistory[0].question,
+        isCorrect: quizHistory[0].isCorrect,
+        isCorrectType: typeof quizHistory[0].isCorrect
+      } : null
+    });
+  }, [quizHistory, examHistory, allHistory, userStats]);
+  
+  // Use DB stats if available, otherwise calculate from history
+  // Force recalculation when userStats changes by using JSON.stringify for deep comparison
+  const stats = useMemo(() => {
+    if (userStats) {
+      // Use stats from database (source of truth)
+      const total = userStats.total_questions_answered || 0;
+      const correct = userStats.total_correct_answers || 0;
+      const percentage = Math.round(userStats.average_score || 0);
+      
+      console.log('HomeView: Using DB stats:', {
+        total,
+        correct,
+        percentage,
+        userStats: userStats,
+        userStatsId: userStats ? Object.keys(userStats).length : 0,
+        timestamp: new Date().toISOString()
+      });
+      
+      return { total, correct, percentage };
+    } else {
+      // Fallback to calculating from history if no DB stats
+      const total = allHistory?.length || 0;
+      // Handle both boolean and string formats for isCorrect
+      const correct = allHistory?.filter(r => {
+        const isCorrect = r?.isCorrect;
+        // Check for boolean true, string "true", or 1
+        return isCorrect === true || isCorrect === 'true' || isCorrect === 1 || isCorrect === '1';
+      }).length || 0;
+      const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
+      
+      console.log('HomeView: Stats calculation from history (fallback):', {
+        total,
+        correct,
+        percentage,
+        allHistoryLength: allHistory?.length,
+        hasUserStats: !!userStats,
+        timestamp: new Date().toISOString()
+      });
+      
+      return { total, correct, percentage };
+    }
+  }, [allHistory, userStats, JSON.stringify(userStats)]); // Add JSON.stringify to force recalculation
+
+  const handleCreateTargetedFlashcards = async () => {
+    if (!analysis?.weaknesses) return;
+    setIsGeneratingTargeted('flashcards');
+    await createTargetedFlashcards(analysis.weaknesses);
+    setIsGeneratingTargeted(null);
+  };
+  
+  const handleCreateTargetedQuiz = async () => {
+    if (!analysis?.weaknesses) return;
+    setIsGeneratingTargeted('quiz');
+    await createTargetedQuiz(analysis.weaknesses);
+    setIsGeneratingTargeted(null);
+  };
+
+  return (
+    <div className="flex-grow p-4 md:p-8 overflow-y-auto">
+        {!emailConfirmed && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div className="flex-grow">
+                <h3 className="text-lg font-semibold text-yellow-800 mb-1">אימות אימייל נדרש</h3>
+                <p className="text-sm text-yellow-700 mb-2">
+                  אנא בדוק את תיבת הדואר הנכנס שלך וצור קשר עם האימייל ששלחנו כדי לאמת את החשבון שלך. לאחר האימות תוכל להשתמש בכל הפיצ'רים.
+                </p>
+                {resendMessage && (
+                  <p className={`text-xs mb-2 ${resendMessage.includes('נשלח') ? 'text-green-700' : 'text-red-700'}`}>
+                    {resendMessage}
+                  </p>
+                )}
+                {userEmail && (
+                  <button
+                    onClick={async () => {
+                      setIsResendingEmail(true);
+                      setResendMessage(null);
+                      const { error } = await resendConfirmationEmail(userEmail);
+                      if (error) {
+                        setResendMessage('שגיאה בשליחת אימייל אישור. נסה שוב מאוחר יותר.');
+                      } else {
+                        setResendMessage('אימייל אישור נשלח בהצלחה! אנא בדוק את תיבת הדואר שלך.');
+                      }
+                      setIsResendingEmail(false);
+                    }}
+                    disabled={isResendingEmail}
+                    className="text-xs text-yellow-700 underline hover:no-underline disabled:opacity-50 mt-1"
+                  >
+                    {isResendingEmail ? 'שולח...' : 'שלח אימייל אישור שוב'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="md:col-span-2 lg:col-span-1 flex items-center justify-center bg-white border border-slate-200 shadow-sm p-6 rounded-lg">
+                 <ProgressCircle percentage={stats.percentage} />
+            </div>
+            <StatCard title="שאלות שנענו" value={stats.total} description="סך כל השאלות שענית עליהן." />
+            <StatCard title="תשובות נכונות" value={stats.correct} description="מספר התשובות הנכונות שלך." />
+            <StatCard title="תשובות שגויות" value={stats.total - stats.correct} description="מספר התשובות השגויות שלך." />
+        </div>
+        
+        <div>
+            <h2 className="text-xl md:text-2xl font-bold mb-4 flex items-center text-slate-900"><SparklesIcon className="h-5 w-5 md:h-6 md:w-6 text-sky-500 ml-2" /> ניתוח AI</h2>
+            {allHistory.length === 0 ? (
+                <div className="bg-white border border-slate-200 p-8 rounded-lg text-center">
+                    <SparklesIcon className="mx-auto h-12 w-12 text-slate-300 mb-4" />
+                    <h3 className="text-lg font-semibold text-slate-800">ניתוח הביצועים שלך יופיע כאן</h3>
+                    <p className="text-slate-500 mt-2 max-w-md mx-auto">השלם בוחן אימון או מבחן כדי לקבל תובנות מבוססות AI על נקודות החוזק והחולשה שלך והמלצות מותאמות אישית.</p>
+                </div>
+            ) : (
+                <>
+                    {isAnalyzing && (
+                        <div className="bg-white border border-slate-200 p-6 rounded-lg text-center">
+                            <div className="w-8 h-8 border-4 border-dashed rounded-full animate-spin border-sky-500 mx-auto"></div>
+                            <p className="mt-4 text-slate-500">מנתח את התקדמותך...</p>
+                        </div>
+                    )}
+                    {analysis && !isAnalyzing && (
+                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
+                            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                <h3 className="text-lg font-semibold text-green-600 mb-3">נושאים חזקים</h3>
+                                <ul className="space-y-2 list-disc list-inside text-slate-600">
+                                    {analysis.strengths.map((item, index) => <li key={index}>{item}</li>)}
+                                </ul>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                <h3 className="text-lg font-semibold text-amber-600 mb-3">נושאים לשיפור</h3>
+                                <ul className="space-y-2 list-disc list-inside text-slate-600">
+                                    {analysis.weaknesses.map((item, index) => <li key={index}>{item}</li>)}
+                                </ul>
+                                {analysis.weaknesses && analysis.weaknesses.length > 0 && (
+                                    <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3">
+                                        <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-4 py-2 bg-amber-100 text-amber-800 text-sm font-semibold rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-wait">
+                                            {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2" /> צור כרטיסיות ממוקדות</>}
+                                        </button>
+                                        <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-4 py-2 bg-amber-100 text-amber-800 text-sm font-semibold rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-wait">
+                                            {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2" /> צור בוחן חיזוק</>}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="lg:col-span-2 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                <h3 className="text-lg font-semibold text-sky-600 mb-3">המלצות להמשך</h3>
+                                <p className="text-slate-600 whitespace-pre-wrap">{analysis.recommendations}</p>
+                            </div>
+                         </div>
+                    )}
+                </>
+            )}
+        </div>
+
+        <div className="mt-10">
+            <h2 className="text-xl md:text-2xl font-bold mb-4 text-slate-800">פעולות מהירות</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <ActionCard 
+                    title="בוחן אימון" 
+                    description="תרגל עם שאלות מבוססות AI ללא הגבלה וללא לחץ זמן." 
+                    icon={<QuizIcon />}
+                    onClick={() => setView('quiz')} 
+                    disabled={!emailConfirmed}
+                />
+                <ActionCard 
+                    title="מבחן תיווך" 
+                    description="בדוק את מוכנותך עם סימולציית מבחן מלאה בתנאים אמיתיים." 
+                    icon={<ExamIcon />}
+                    onClick={() => setView('exam')} 
+                    disabled={!emailConfirmed}
+                />
+                <ActionCard 
+                    title="כרטיסיות לימוד" 
+                    description="שנן מושגי מפתח וחוקים עם כרטיסיות חכמות." 
+                    icon={<FlashcardsIcon />}
+                    onClick={() => setView('flashcards')} 
+                    disabled={!emailConfirmed}
+                />
+            </div>
+        </div>
+    </div>
+  );
+};
+
+export default HomeView;
