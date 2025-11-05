@@ -70,6 +70,7 @@ const App: React.FC = () => {
   const quizProgressRef = useRef(quizProgress); // Keep ref in sync with quiz progress
   const quizQuestionsRef = useRef(quizQuestions); // Keep ref in sync with quiz questions
   const statsSavedForQuizRef = useRef(false); // Track if stats have been saved for current quiz
+  const recentlyShownQuestionsRef = useRef<string[]>([]); // Track last 50 questions shown to avoid repeats
   
   // Keep refs in sync with state
   useEffect(() => {
@@ -392,17 +393,28 @@ const App: React.FC = () => {
     // CRITICAL: Don't regenerate if user is actively answering a question
     // This prevents disrupting their current question
     // EXCEPTION: If quiz is finished, always allow regeneration (user clicked "עשה בוחן נוסף")
-    const currentIndex = quizProgress.currentQuestionIndex;
-    const currentSelectedAnswer = quizProgress.selectedAnswer;
-    const isQuizFinished = quizProgress.isFinished;
+    // Use refs to get the most current values
+    const currentProgress = quizProgressRef.current;
+    const currentIndex = currentProgress.currentQuestionIndex;
+    const currentSelectedAnswer = currentProgress.selectedAnswer;
+    const isQuizFinished = currentProgress.isFinished;
     
     // If quiz is finished, always allow regeneration - reset progress first
     if (isQuizFinished) {
+      console.log('Quiz is finished - allowing regeneration');
       resetQuizProgress();
+      // After reset, the ref should be updated, but we explicitly set it to ensure consistency
+      quizProgressRef.current = {
+        currentQuestionIndex: 0,
+        selectedAnswer: null,
+        showAnswer: false,
+        score: 0,
+        isFinished: false,
+      };
       // Continue with regeneration below
     } else {
       // Quiz is not finished - check if user is actively answering
-      const userIsActive = currentIndex > 0 || currentSelectedAnswer !== null || quizProgress.showAnswer;
+      const userIsActive = currentIndex > 0 || currentSelectedAnswer !== null || currentProgress.showAnswer;
       
       if (userIsActive && quizQuestions && quizQuestions.length > 0) {
         console.log('User is actively answering - skipping quiz regeneration to preserve current question');
@@ -411,7 +423,9 @@ const App: React.FC = () => {
     }
     
     // Capture the initial state - user should not have started when we begin
-    const userHasStartedAtStart = currentIndex > 0 || currentSelectedAnswer !== null;
+    // After reset, this should be 0 and null
+    const resetProgress = quizProgressRef.current;
+    const userHasStartedAtStart = resetProgress.currentQuestionIndex > 0 || resetProgress.selectedAnswer !== null;
     
     // Use a ref to track if user becomes active during generation
     const userBecameActiveRef = { current: false };
@@ -947,14 +961,30 @@ const App: React.FC = () => {
     return matrix[str2.length][str1.length];
   };
   
-  // Helper function to deduplicate questions
+  // Helper function to deduplicate questions and filter out recently shown ones
   const deduplicateQuestions = (questions: QuizQuestion[]): QuizQuestion[] => {
     const seen = new Set<string>();
     const unique: QuizQuestion[] = [];
+    const recentlyShown = recentlyShownQuestionsRef.current;
     
     for (const q of questions) {
       const normalized = q.question.toLowerCase().trim();
-      // Check if we've seen a very similar question
+      
+      // Check if this question was shown recently (within last 50 questions)
+      let wasRecentlyShown = false;
+      for (const recentQuestion of recentlyShown) {
+        if (normalized === recentQuestion || 
+            (normalized.length > 20 && recentQuestion.length > 20 && calculateSimilarity(normalized, recentQuestion) > 0.85)) {
+          wasRecentlyShown = true;
+          break;
+        }
+      }
+      
+      if (wasRecentlyShown) {
+        continue; // Skip this question - it was shown recently
+      }
+      
+      // Check if we've seen a very similar question in the current batch
       let isDuplicate = false;
       for (const seenText of seen) {
         if (normalized === seenText || 
@@ -971,6 +1001,30 @@ const App: React.FC = () => {
     }
     
     return unique;
+  };
+  
+  // Helper function to add a question to recently shown list (keeps only last 50)
+  const addToRecentlyShown = (question: string) => {
+    const normalized = question.toLowerCase().trim();
+    const recentlyShown = recentlyShownQuestionsRef.current;
+    
+    // Remove if already exists (to avoid duplicates in the list)
+    const index = recentlyShown.findIndex(q => q === normalized || 
+      (normalized.length > 20 && q.length > 20 && calculateSimilarity(normalized, q) > 0.85));
+    
+    if (index !== -1) {
+      recentlyShown.splice(index, 1);
+    }
+    
+    // Add to the beginning
+    recentlyShown.unshift(normalized);
+    
+    // Keep only last 50 questions
+    if (recentlyShown.length > 50) {
+      recentlyShown.splice(50);
+    }
+    
+    recentlyShownQuestionsRef.current = recentlyShown;
   };
   
   const regenerateFlashcards = useCallback(async () => {
@@ -1313,6 +1367,9 @@ const App: React.FC = () => {
   };
 
   const handleQuestionAnswered = async (result: QuizResult) => {
+    // Track this question as recently shown (to avoid repeats within 50 questions)
+    addToRecentlyShown(result.question);
+    
     // Don't categorize here - let the useEffect batch all categorizations together
     // Just add result to history and update local topic progress
     setQuizHistory(prev => [...prev, result]);
@@ -1388,6 +1445,11 @@ const App: React.FC = () => {
   };
 
   const handleExamFinished = async (results: QuizResult[]) => {
+    // Track all exam questions as recently shown (to avoid repeats within 50 questions)
+    results.forEach(result => {
+      addToRecentlyShown(result.question);
+    });
+    
     // Don't categorize here - let the useEffect batch all categorizations together
     // Just add results to history - the useEffect will handle categorization and saving
     setExamHistory(prev => [...prev, ...results]);

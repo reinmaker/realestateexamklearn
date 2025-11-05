@@ -499,28 +499,50 @@ const QuizView: React.FC<QuizViewProps> = ({
                     <h3 className="text-2xl font-bold mb-4 text-slate-900">סקירת שאלות</h3>
                     <div className="space-y-4">
                         {questions.map((q, index) => {
-                            const userAnswerIndex = userAnswers[index];
+                            const userAnswerIndex = userAnswers[index] ?? null;
+                            const isQuestionCorrect = userAnswerIndex !== null && userAnswerIndex === q.correctAnswerIndex;
+                            const hasUserAnswer = userAnswerIndex !== null;
+                            
                             return (
-                                <div key={index} className="bg-white p-5 rounded-lg border border-slate-200">
-                                    <p className="font-semibold text-slate-800 mb-4">{index + 1}. {q.question}</p>
+                                <div key={index} className={`bg-white p-5 rounded-lg border-2 ${isQuestionCorrect ? 'border-green-300' : hasUserAnswer ? 'border-red-300' : 'border-slate-200'}`}>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <p className="font-semibold text-slate-800">{index + 1}. {q.question}</p>
+                                        {hasUserAnswer && (
+                                            <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${isQuestionCorrect ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                {isQuestionCorrect ? (
+                                                    <>
+                                                        <CheckIcon className="h-4 w-4" />
+                                                        <span>נכון</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CloseIcon className="h-4 w-4" />
+                                                        <span>שגוי</span>
+                                                    </>
+                                                )}
+                                            </span>
+                                        )}
+                                    </div>
                                     <div className="space-y-2 text-sm">
                                         {q.options.map((option, optIndex) => {
-                                            const isCorrectForQuestion = userAnswerIndex === q.correctAnswerIndex;
                                             const isUserAnswer = userAnswerIndex === optIndex;
                                             const isCorrectAnswer = q.correctAnswerIndex === optIndex;
-                                            const isSelectedAndWrong = isUserAnswer && !isCorrectForQuestion;
-                                            const isSelectedAndCorrect = isUserAnswer && isCorrectForQuestion;
+                                            const isSelectedAndWrong = isUserAnswer && !isCorrectAnswer;
+                                            const isSelectedAndCorrect = isUserAnswer && isCorrectAnswer;
                                             
                                             let styles = "border-slate-200 bg-slate-50 text-slate-700";
                                             if (isCorrectAnswer) {
-                                                styles = "border-green-300 bg-green-50 text-green-800 font-semibold";
+                                                styles = "border-green-400 bg-green-50 text-green-900 font-semibold";
                                             }
                                             if (isSelectedAndWrong) {
-                                                styles = "border-red-300 bg-red-50 text-red-800";
+                                                styles = "border-red-400 bg-red-50 text-red-900 font-semibold";
+                                            }
+                                            if (isSelectedAndCorrect) {
+                                                styles = "border-green-500 bg-green-100 text-green-900 font-bold";
                                             }
 
                                             return (
-                                                <div key={optIndex} className={`p-3 border rounded-md flex justify-between items-center gap-4 ${styles}`}>
+                                                <div key={optIndex} className={`p-3 border-2 rounded-md flex justify-between items-center gap-4 ${styles}`}>
                                                     <span className={`flex-grow ${isSelectedAndWrong ? 'line-through' : ''}`}>
                                                         {hebrewLetters[optIndex]}. {option}
                                                     </span>
@@ -528,20 +550,20 @@ const QuizView: React.FC<QuizViewProps> = ({
                                                     <div className="flex items-center text-xs font-bold flex-shrink-0">
                                                         {isSelectedAndCorrect && (
                                                             <span className="flex items-center gap-1.5 bg-green-200 text-green-900 px-2 py-1 rounded-full">
-                                                            <CheckIcon className="h-3.5 w-3.5" />
-                                                            <span>התשובה שלך</span>
+                                                                <CheckIcon className="h-3.5 w-3.5" />
+                                                                <span>התשובה שלך</span>
                                                             </span>
                                                         )}
                                                         {isSelectedAndWrong && (
                                                             <span className="flex items-center gap-1.5 bg-red-200 text-red-900 px-2 py-1 rounded-full">
-                                                            <CloseIcon className="h-3 w-3" />
-                                                            <span>התשובה שלך</span>
+                                                                <CloseIcon className="h-3 w-3" />
+                                                                <span>התשובה שלך (שגוי)</span>
                                                             </span>
                                                         )}
                                                         {isCorrectAnswer && !isUserAnswer && (
                                                             <span className="flex items-center gap-1.5 bg-green-200 text-green-900 px-2 py-1 rounded-full">
-                                                            <CheckIcon className="h-3.5 w-3.5" />
-                                                            <span>תשובה נכונה</span>
+                                                                <CheckIcon className="h-3.5 w-3.5" />
+                                                                <span>תשובה נכונה</span>
                                                             </span>
                                                         )}
                                                     </div>

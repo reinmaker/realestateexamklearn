@@ -40,6 +40,7 @@ const ExamView: React.FC<ExamViewProps> = ({
   const [userAnswers, setUserAnswers] = useState<(number | null)[]>([]);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(120 * 60);
+  const userClickedStartRef = useRef(false); // Track if user clicked "התחל את המבחן"
   
   // Check if exam was already finished when component mounts
   // If questions match and we have exam history, restore finished state
@@ -121,6 +122,9 @@ const ExamView: React.FC<ExamViewProps> = ({
 
   const handleStartExam = async () => {
     if (attemptsLeft > 0) {
+      // Mark that user clicked start
+      userClickedStartRef.current = true;
+      
       // Clear any saved finished state when starting a new exam
       try {
         const examFinishedKey = 'exam_finished_state';
@@ -130,22 +134,31 @@ const ExamView: React.FC<ExamViewProps> = ({
       }
       
       // Reset exam state first
-      setExamState('intro');
       setCurrentQuestionIndex(0);
       setUserAnswers([]);
       setScore(0);
       setTimeLeft(120 * 60);
       
-      // Always regenerate exam to get a fresh random mix from the full DB pool
-      await regenerateExam();
-      
-      // Only set to running after questions are loaded (handled by useEffect)
-      // The exam will start automatically when questions.length >= totalQuestions
+      // If questions are already loaded, start the exam immediately
+      if (questions && questions.length >= totalQuestions) {
+        setExamState('running');
+        setIsExamInProgress(true);
+        setUserAnswers(new Array(questions.length).fill(null));
+        setCurrentQuestionIndex(0);
+        setScore(0);
+        setTimeLeft(120 * 60);
+        userClickedStartRef.current = false; // Reset after starting
+      } else {
+        // If questions aren't loaded yet, regenerate them
+        // The useEffect will handle starting the exam when questions are ready
+        await regenerateExam();
+      }
     }
   };
 
   useEffect(() => {
     // If we have all questions and exam state is intro, check if exam was already finished
+    // Do NOT automatically start the exam - wait for user to click "התחל את המבחן"
     if (questions && questions.length >= totalQuestions && examState === 'intro' && !isLoading) {
       // First check if exam was already finished (restored from localStorage)
       try {
@@ -162,6 +175,7 @@ const ExamView: React.FC<ExamViewProps> = ({
             setUserAnswers(parsed.userAnswers || []);
             setTimeLeft(parsed.timeLeft || 0);
             setIsExamInProgress(false);
+            userClickedStartRef.current = false; // Reset
             return;
           }
         }
@@ -169,13 +183,18 @@ const ExamView: React.FC<ExamViewProps> = ({
         console.warn('Could not check exam finished state:', error);
       }
       
-      // If not finished, start the exam
-      setExamState('running');
-      setIsExamInProgress(true);
-      setUserAnswers(new Array(questions.length).fill(null));
-      setCurrentQuestionIndex(0);
-      setScore(0);
-      setTimeLeft(120 * 60);
+      // Only start the exam if user clicked "התחל את המבחן"
+      if (userClickedStartRef.current) {
+        console.log('User clicked start, starting exam now that questions are loaded');
+        setExamState('running');
+        setIsExamInProgress(true);
+        setUserAnswers(new Array(questions.length).fill(null));
+        setCurrentQuestionIndex(0);
+        setScore(0);
+        setTimeLeft(120 * 60);
+        userClickedStartRef.current = false; // Reset after starting
+      }
+      // Otherwise, keep showing intro screen until user clicks "התחל את המבחן"
     }
   }, [questions?.length, examState, totalQuestions, isLoading, setIsExamInProgress]); // Only depend on questions.length, not the full array
 

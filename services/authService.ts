@@ -165,6 +165,14 @@ export async function signUpWithEmail(email: string, password: string, name?: st
 
 /**
  * Sign in with Google OAuth
+ * 
+ * Configuration checklist:
+ * 1. Google Cloud Console:
+ *    - Authorized redirect URIs: https://arhoasurtfurjgfohlgt.supabase.co/auth/v1/callback
+ *    - Local dev: http://localhost:3000/auth/v1/callback
+ * 2. Supabase Dashboard:
+ *    - Auth → URL Configuration → Redirect URLs: Add your app URLs (e.g., http://localhost:3000/)
+ *    - Auth → Providers → Google: Enable and add Client ID + Secret
  */
 export async function signInWithGoogle(): Promise<{ error: Error | null }> {
   try {
@@ -172,10 +180,8 @@ export async function signInWithGoogle(): Promise<{ error: Error | null }> {
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/`,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
-        },
+        // Note: queryParams are only needed if you want to extract Google tokens
+        // to access Google services on the user's behalf
       },
     });
 
