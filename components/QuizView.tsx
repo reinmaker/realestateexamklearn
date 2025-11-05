@@ -206,17 +206,31 @@ const QuizView: React.FC<QuizViewProps> = ({
 
   const handleNextQuestion = () => {
     if (!questions) return;
-    if (currentQuestionIndex < questions.length - 1) {
-        setQuizProgress(prev => ({
-            ...prev,
-            currentQuestionIndex: prev.currentQuestionIndex + 1,
-            selectedAnswer: null,
-            showAnswer: false,
-        }));
-    } else {
+    
+    // If we're on the last loaded question, check if we can continue
+    if (currentQuestionIndex >= questions.length - 1) {
+      // If all questions are loaded, finish the quiz
       if (isFullyLoaded) {
         setQuizProgress(prev => ({ ...prev, isFinished: true }));
+      } else {
+        // Not all questions loaded yet - check if we should wait or finish early
+        // If we have at least 15 questions and AI generation is failing, finish early
+        // Otherwise, wait for more questions (button will show spinner)
+        if (questions.length >= 15 && !isLoading) {
+          // We have enough questions (15+) and generation has stopped - finish early
+          console.log('Finishing quiz early with', questions.length, 'questions (AI generation may have failed)');
+          setQuizProgress(prev => ({ ...prev, isFinished: true }));
+        }
+        // If isLoading is true, the UI will show "יוצר שאלות נוספות..." and wait
       }
+    } else {
+      // Move to next question
+      setQuizProgress(prev => ({
+          ...prev,
+          currentQuestionIndex: prev.currentQuestionIndex + 1,
+          selectedAnswer: null,
+          showAnswer: false,
+      }));
     }
   };
   
