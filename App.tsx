@@ -795,21 +795,34 @@ const App: React.FC = () => {
 
     try {
         // Exam always uses all DB questions (no AI generation)
-        console.log('Generating exam - using all DB questions');
+        // This ensures a random mix from the full pool of 730+ questions
+        console.log('Generating exam - fetching random mix from full DB pool');
         const dbQuestions = await getDbQuestionsAsQuiz(
           TOTAL_QUESTIONS, 
           documentContent
         );
         
-        // Shuffle the questions (both questions and answers are already randomized)
+        if (dbQuestions.length === 0) {
+          console.error('No questions fetched from database for exam');
+          setAppError("לא נמצאו שאלות במסד הנתונים. אנא נסה שוב מאוחר יותר.");
+          return;
+        }
+        
+        if (dbQuestions.length < TOTAL_QUESTIONS) {
+          console.warn(`Only fetched ${dbQuestions.length} questions, expected ${TOTAL_QUESTIONS}`);
+        }
+        
+        // Shuffle the questions again (they're already randomized by fetchQuestionsFromDB, but shuffle again for extra randomness)
         const shuffledAllQuestions = [...dbQuestions].sort(() => Math.random() - 0.5);
         
         // Set the final shuffled questions
         setExamQuestions(shuffledAllQuestions);
+        console.log(`Exam generated successfully with ${shuffledAllQuestions.length} questions from database`);
 
     } catch (error) {
+        console.error('Error generating exam:', error);
         if (error instanceof Error) setAppError(error.message);
-        else setAppError("נכשל ביצירת שאר שאלות המבחן.");
+        else setAppError("נכשל ביצירת שאלות המבחן. אנא נסה שוב.");
     } finally {
         setGenerationStatus(prev => ({ ...prev, exam: { ...prev.exam, generating: false } }));
     }

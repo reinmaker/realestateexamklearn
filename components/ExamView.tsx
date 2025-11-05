@@ -91,11 +91,10 @@ const ExamView: React.FC<ExamViewProps> = ({
 
   const handleStartExam = () => {
     if (attemptsLeft > 0) {
+      // Always regenerate exam to get a fresh random mix from the full DB pool
+      regenerateExam();
       setExamState('running');
       setIsExamInProgress(true);
-      if (!questions || questions.length < totalQuestions) {
-        regenerateExam();
-      }
     }
   };
 
