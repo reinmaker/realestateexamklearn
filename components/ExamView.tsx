@@ -100,11 +100,12 @@ const ExamView: React.FC<ExamViewProps> = ({
   };
 
   useEffect(() => {
-    if (questions && examState === 'running') {
+    if (questions && questions.length >= totalQuestions && examState === 'running') {
+        // Only initialize exam when we have all questions loaded
         setUserAnswers(new Array(questions.length).fill(null));
         setCurrentQuestionIndex(0);
     }
-  }, [questions, examState]);
+  }, [questions, examState, totalQuestions]);
 
 
   useEffect(() => {

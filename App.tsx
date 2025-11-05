@@ -863,6 +863,9 @@ const App: React.FC = () => {
         if (!quizQuestions) {
           regenerateQuiz();
         }
+        if (!examQuestions) {
+          regenerateExam();
+        }
         try {
           const userName = user?.name || user?.email?.split('@')[0] || undefined;
           const newChat = await createChatSession(documentContent, userName);
