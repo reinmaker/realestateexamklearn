@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { QuizQuestion, QuizResult, QuizProgress, AnalysisResult, ViewType } from '../types';
 import { SparklesIcon, FlashcardsIcon, QuizIcon, CheckIcon, CloseIcon, SpeakerIcon } from './icons';
-import { generateSpeech } from '../services/aiService';
+import { generateSpeech, generateTeacherReaction } from '../services/aiService';
 
 
 const ProgressCircle: React.FC<{ percentage: number }> = ({ percentage }) => {
@@ -85,6 +85,10 @@ const QuizView: React.FC<QuizViewProps> = ({
   const progressIntervalRef = useRef<number | null>(null);
   const progressStartTimeRef = useRef<number | null>(null);
   const [isAudioLoading, setIsAudioLoading] = useState<'question' | 'explanation' | null>(null);
+  const [teacherMessage, setTeacherMessage] = useState<string | null>(null);
+  const [showTeacherMessage, setShowTeacherMessage] = useState(false);
+  const [teacherMessageQuestion, setTeacherMessageQuestion] = useState<QuizQuestion | null>(null); // Store question context for chat
+  const recentStreakRef = useRef<number>(0); // Track recent correct/incorrect streak
 
   useEffect(() => {
     // If loading, start animated progress from 0% to 100% over 60 seconds
@@ -176,7 +180,7 @@ const QuizView: React.FC<QuizViewProps> = ({
   }, [questions]);
 
 
-  const handleAnswerSelect = (index: number) => {
+  const handleAnswerSelect = async (index: number) => {
     if (showAnswer || !questions) return;
     const currentQuestion = questions[currentQuestionIndex];
     const isCorrect = index === currentQuestion.correctAnswerIndex;
@@ -188,6 +192,11 @@ const QuizView: React.FC<QuizViewProps> = ({
     let newScore = score;
     if (isCorrect) {
       newScore = score + 1;
+      // Update streak (positive for correct)
+      recentStreakRef.current = recentStreakRef.current > 0 ? recentStreakRef.current + 1 : 1;
+    } else {
+      // Update streak (negative for incorrect)
+      recentStreakRef.current = recentStreakRef.current < 0 ? recentStreakRef.current - 1 : -1;
     }
 
     setQuizProgress(prev => ({
@@ -202,26 +211,93 @@ const QuizView: React.FC<QuizViewProps> = ({
         isCorrect: isCorrect,
         explanation: currentQuestion.explanation,
     });
+    
+    // Generate teacher reaction message only on milestones (not every question)
+    const totalAnswered = currentQuestionIndex + 1;
+    const percentage = totalAnswered > 0 ? Math.round((newScore / totalAnswered) * 100) : 0;
+    
+    // Show teacher reaction only on milestones:
+    // 1. Every 5 questions
+    // 2. Significant streaks (3+ correct or 3+ incorrect)
+    // 3. Percentage milestones (25%, 50%, 75%, 100%)
+    // 4. First question
+    const shouldShowReaction = 
+      totalAnswered === 1 || // First question
+      totalAnswered % 5 === 0 || // Every 5 questions
+      Math.abs(recentStreakRef.current) >= 3 || // Significant streak
+      (percentage === 25 || percentage === 50 || percentage === 75 || percentage === 100) || // Percentage milestones
+      (totalAnswered === 10 || totalAnswered === 15 || totalAnswered === 20 || totalAnswered === 25); // Question count milestones
+    
+    if (shouldShowReaction) {
+      const selectedAnswerText = currentQuestion.options[index];
+      const correctAnswerText = currentQuestion.options[currentQuestion.correctAnswerIndex];
+      
+      console.log('Generating teacher reaction:', {
+        isCorrect,
+        newScore,
+        totalAnswered,
+        recentStreak: recentStreakRef.current,
+        userName,
+        question: currentQuestion.question,
+        selectedAnswer: selectedAnswerText,
+        correctAnswer: correctAnswerText
+      });
+      
+      generateTeacherReaction(
+        isCorrect,
+        newScore,
+        totalAnswered,
+        recentStreakRef.current,
+        userName,
+        currentQuestion.question,
+        selectedAnswerText,
+        correctAnswerText,
+        currentQuestion.explanation
+      ).then((reaction) => {
+        console.log('Teacher reaction received:', reaction);
+        setTeacherMessage(reaction);
+        setTeacherMessageQuestion(currentQuestion); // Store question for chat
+        setShowTeacherMessage(true);
+        
+        // Auto-hide after 6 seconds (longer for more detailed messages)
+        setTimeout(() => {
+          setShowTeacherMessage(false);
+        }, 6000);
+      }).catch((error) => {
+        console.error('Error generating teacher reaction:', error);
+        // Show a fallback message if API fails
+        const fallbackMessage = isCorrect 
+          ? `${userName || 'אתה'}, תשובה נכונה! מעולה! המשך כך.`
+          : `${userName || 'אתה'}, לא נורא. כל שגיאה היא הזדמנות ללמוד.`;
+        console.log('Using fallback message:', fallbackMessage);
+        setTeacherMessage(fallbackMessage);
+        setTeacherMessageQuestion(currentQuestion); // Store question for chat
+        setShowTeacherMessage(true);
+        
+        // Auto-hide after 6 seconds
+        setTimeout(() => {
+          setShowTeacherMessage(false);
+        }, 6000);
+      });
+    }
   };
 
   const handleNextQuestion = () => {
     if (!questions) return;
     
+    // Hide teacher message when moving to next question
+    setShowTeacherMessage(false);
+    
     // If we're on the last loaded question, check if we can continue
     if (currentQuestionIndex >= questions.length - 1) {
-      // If all questions are loaded, finish the quiz
-      if (isFullyLoaded) {
+      // Only finish if we have all 25 questions loaded
+      if (isFullyLoaded || questions.length >= totalQuestions) {
+        console.log('Finishing quiz with all', questions.length, 'questions loaded');
         setQuizProgress(prev => ({ ...prev, isFinished: true }));
       } else {
-        // Not all questions loaded yet - check if we should wait or finish early
-        // If we have at least 15 questions and AI generation is failing, finish early
-        // Otherwise, wait for more questions (button will show spinner)
-        if (questions.length >= 15 && !isLoading) {
-          // We have enough questions (15+) and generation has stopped - finish early
-          console.log('Finishing quiz early with', questions.length, 'questions (AI generation may have failed)');
-          setQuizProgress(prev => ({ ...prev, isFinished: true }));
-        }
-        // If isLoading is true, the UI will show "יוצר שאלות נוספות..." and wait
+        // Not all questions loaded yet - wait for more questions
+        // The UI will show "יוצר שאלות נוספות..." message and user can't proceed
+        console.log('Waiting for more questions. Current:', questions.length, 'Target:', totalQuestions, 'Loading:', isLoading);
       }
     } else {
       // Move to next question
@@ -316,10 +392,10 @@ const QuizView: React.FC<QuizViewProps> = ({
 
     const isCorrect = index === currentQuestion.correctAnswerIndex;
     if (isCorrect) {
-      return 'bg-green-50 border-green-400 text-green-800 font-semibold';
+      return 'bg-green-50 border-green-400 text-green-800 font-semibold animate-scale-in';
     }
     if (selectedAnswer === index && !isCorrect) {
-      return 'bg-red-50 border-red-400 text-red-800 font-semibold';
+      return 'bg-red-50 border-red-400 text-red-800 font-semibold animate-scale-in';
     }
     return 'bg-slate-50 border-slate-200 text-slate-500';
   };
@@ -359,52 +435,64 @@ const QuizView: React.FC<QuizViewProps> = ({
             <div className="max-w-4xl mx-auto">
                 <h2 className="text-3xl font-bold text-slate-800 text-center">הבוחן הושלם!</h2>
                 
-                <div className="my-8 flex flex-col items-center justify-center bg-white p-6 rounded-lg border border-slate-200 shadow-sm">
+                <div className="my-8 flex flex-col items-center justify-center bg-white p-6 rounded-lg border border-slate-200 shadow-sm animate-bounce-in">
                     <ProgressCircle percentage={percentage} />
-                    <p className="text-2xl font-bold mt-4 text-slate-800">הציון שלך: {score} מתוך {questions.length}</p>
-                    <p className={`text-2xl font-bold mt-2 ${passed ? 'text-green-600' : 'text-red-600'}`}>
+                    <p className="text-2xl font-bold mt-4 text-slate-800 animate-fade-in" style={{ animationDelay: '0.3s' }}>הציון שלך: {score} מתוך {questions.length}</p>
+                    <p className={`text-2xl font-bold mt-2 animate-fade-in ${passed ? 'text-green-600' : 'text-red-600'}`} style={{ animationDelay: '0.4s' }}>
                         {passed ? 'עברת את הבוחן!' : 'לא עברת את הבוחן'}
                     </p>
+                </div>
+
+                <div className="my-8 pt-6 border-t border-slate-300 flex flex-col sm:flex-row justify-center gap-4">
+                    <button onClick={regenerateQuiz} className="px-8 py-3 bg-sky-600 text-white font-bold rounded-lg hover:bg-sky-700 transition-colors text-lg">
+                        עשה בוחן נוסף
+                    </button>
+                    <button onClick={() => setView('home')} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg transition-colors">
+                        חזור לדף הבית
+                    </button>
                 </div>
 
                 <div className="my-8">
                     <h3 className="text-2xl font-bold mb-4 flex items-center text-slate-900">
                         <SparklesIcon className="h-6 w-6 text-sky-500 ml-2" /> ניתוח AI
                     </h3>
-                    {isAnalyzing && (
+                    {isAnalyzing ? (
                         <div className="bg-white border border-slate-200 p-6 rounded-lg text-center">
                             <div className="w-8 h-8 border-4 border-dashed rounded-full animate-spin border-sky-500 mx-auto"></div>
                             <p className="mt-4 text-slate-500">מנתח את התקדמותך...</p>
                         </div>
-                    )}
-                    {analysis && (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
-                            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
-                                <h4 className="text-lg font-semibold text-green-600 mb-3">נושאים חזקים</h4>
-                                <ul className="space-y-2 list-disc list-inside text-slate-600">
-                                    {analysis.strengths.map((item, index) => <li key={index}>{item}</li>)}
-                                </ul>
-                            </div>
-                            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
-                                <h4 className="text-lg font-semibold text-amber-600 mb-3">נושאים לשיפור</h4>
-                                <ul className="space-y-2 list-disc list-inside text-slate-600">
-                                    {analysis.weaknesses.map((item, index) => <li key={index}>{item}</li>)}
-                                </ul>
-                                <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3">
-                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-4 py-2 bg-amber-100 text-amber-800 text-sm font-semibold rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-wait">
-                                        {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2" /> צור כרטיסיות ממוקדות</>}
-                                    </button>
-                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-4 py-2 bg-amber-100 text-amber-800 text-sm font-semibold rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-wait">
-                                        {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2" /> צור בוחן חיזוק</>}
-                                    </button>
+                    ) : analysis ? (
+                        <>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
+                                <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                    <h4 className="text-lg font-semibold text-green-600 mb-3">נושאים חזקים</h4>
+                                    <ul className="space-y-2 list-disc list-inside text-slate-600">
+                                        {analysis.strengths.map((item, index) => <li key={index}>{item}</li>)}
+                                    </ul>
+                                </div>
+                                <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                    <h4 className="text-lg font-semibold text-amber-600 mb-3">נושאים לשיפור</h4>
+                                    <ul className="space-y-2 list-disc list-inside text-slate-600">
+                                        {analysis.weaknesses.map((item, index) => <li key={index}>{item}</li>)}
+                                    </ul>
                                 </div>
                             </div>
-                            <div className="lg:col-span-2 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                            {analysis.weaknesses && analysis.weaknesses.length > 0 && (
+                                <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3">
+                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-sm">
+                                        {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-slate-600 border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2 text-slate-700" /> צור כרטיסיות ממוקדות</>}
+                                    </button>
+                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-sm">
+                                        {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-slate-600 border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2 text-slate-700" /> צור בוחן חיזוק</>}
+                                    </button>
+                                </div>
+                            )}
+                            <div className="mt-6 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
                                 <h4 className="text-lg font-semibold text-sky-600 mb-3">המלצות להמשך</h4>
                                 <p className="text-slate-600 whitespace-pre-wrap">{analysis.recommendations}</p>
                             </div>
-                        </div>
-                    )}
+                        </>
+                    ) : null}
                 </div>
 
                 <div className="my-8">
@@ -470,14 +558,6 @@ const QuizView: React.FC<QuizViewProps> = ({
                     </div>
                 </div>
 
-                <div className="mt-8 pt-6 border-t border-slate-300 flex flex-col sm:flex-row justify-center gap-4">
-                    <button onClick={regenerateQuiz} className="px-8 py-3 bg-sky-600 text-white font-bold rounded-lg hover:bg-sky-700 transition-colors text-lg">
-                        עשה בוחן נוסף
-                    </button>
-                    <button onClick={() => setView('home')} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg transition-colors">
-                        חזור לדף הבית
-                    </button>
-                </div>
             </div>
         </div>
     );
@@ -501,12 +581,50 @@ const QuizView: React.FC<QuizViewProps> = ({
     return null; // Should not happen if questions array is not empty
   }
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
-  const isWaitingForQuestions = showAnswer && isLastQuestion && isLoading && !isFullyLoaded;
+  // Show "waiting for questions" if we're on the last loaded question and don't have all 25 questions yet
+  // Only allow proceeding if we have all 25 questions loaded
+  const canProceedFromLastQuestion = isFullyLoaded || questions.length >= totalQuestions;
+  const isWaitingForQuestions = showAnswer && isLastQuestion && !canProceedFromLastQuestion && questions.length < totalQuestions;
   const progressInQuiz = questions ? ((currentQuestionIndex + 1) / totalQuestions) * 100 : 0;
 
 
   return (
-    <div className="flex-grow p-4 md:p-8 overflow-y-auto">
+    <div className="flex-grow p-4 md:p-8 overflow-y-auto relative">
+      {/* Teacher message popup - positioned near ChatWidget (bottom left) */}
+      {showTeacherMessage && teacherMessage && (
+        <div className="fixed bottom-24 left-4 z-[9999] max-w-sm w-[calc(100vw-2rem)] animate-fade-in">
+          <div 
+            onClick={() => {
+              // Open chat with question context when toast is clicked
+              if (teacherMessageQuestion) {
+                const context = `שאלה: ${teacherMessageQuestion.question}\n\nאפשרויות:\n${teacherMessageQuestion.options.map((o, i) => `${hebrewLetters[i]}. ${o}`).join('\n')}\n\nתשובה נכונה: ${teacherMessageQuestion.options[teacherMessageQuestion.correctAnswerIndex]}\n\nהסבר קצר: ${teacherMessageQuestion.explanation}`;
+                openSideChat(context);
+                setShowTeacherMessage(false); // Close toast when opening chat
+              }
+            }}
+            className="bg-slate-700 border-2 border-slate-600 text-white rounded-lg shadow-lg p-4 flex items-start gap-3 cursor-pointer hover:bg-slate-600 transition-colors"
+          >
+            <div className="flex-shrink-0 mt-0.5">
+              <SparklesIcon className="h-5 w-5 text-amber-400" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-white leading-relaxed">{teacherMessage}</p>
+              <p className="text-xs text-slate-300 mt-2">לחץ כדי לפתוח שיחה על הנושא</p>
+            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation(); // Prevent triggering the parent onClick
+                setShowTeacherMessage(false);
+              }}
+              className="flex-shrink-0 p-1 rounded-full hover:bg-slate-500 transition-colors"
+              aria-label="סגור"
+            >
+              <CloseIcon className="h-4 w-4 text-white" />
+            </button>
+          </div>
+        </div>
+      )}
+      
       <div className="max-w-4xl mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-4">
             <h2 className="text-xl font-semibold text-sky-600">בוחן אימון</h2>
@@ -519,23 +637,25 @@ const QuizView: React.FC<QuizViewProps> = ({
                 </div>
             </div>
         </div>
-        <div className="w-full bg-slate-200 rounded-full h-2.5 mb-4">
+        <div className="w-full bg-slate-200 rounded-full h-2.5 mb-4 overflow-hidden rounded-full">
             <div
-                className="bg-sky-500 h-2.5 rounded-full transition-all duration-300 ease-out"
+                className="bg-sky-500 h-2.5 rounded-full transition-all duration-500 ease-out relative"
                 style={{ width: `${progressInQuiz}%` }}
-            ></div>
+            >
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
+            </div>
         </div>
-        <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+        <div key={currentQuestionIndex} className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm animate-slide-in-right">
           <div className="flex items-center justify-between gap-4 mb-6">
             <p className="text-lg font-semibold text-slate-900 flex-1">{currentQuestion.question}</p>
             <button
                 onClick={() => handlePlayAudio(currentQuestion.question, 'question')}
                 disabled={!!isAudioLoading}
-                className="p-2 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
+                className="p-2 rounded-full bg-slate-700 border-2 border-slate-600 text-white hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
                 aria-label="הקרא שאלה"
             >
                 {isAudioLoading === 'question' ? (
-                    <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 ) : (
                     <SpeakerIcon className="h-5 w-5" />
                 )}
@@ -547,7 +667,8 @@ const QuizView: React.FC<QuizViewProps> = ({
                 key={index}
                 onClick={() => handleAnswerSelect(index)}
                 disabled={showAnswer}
-                className={`p-4 rounded-lg border transition-all duration-300 flex items-baseline gap-3 text-right ${getButtonClass(index)} ${!showAnswer ? 'cursor-pointer' : 'cursor-default'}`}
+                className={`p-4 rounded-lg border transition-all duration-300 flex items-baseline gap-3 text-right ${getButtonClass(index)} ${!showAnswer ? 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]' : 'cursor-default'} animate-scale-in`}
+                style={{ animationDelay: `${index * 0.05}s` }}
               >
                 <span className="font-bold">{hebrewLetters[index]}.</span>
                 <span className="flex-1">{option}</span>
@@ -556,7 +677,7 @@ const QuizView: React.FC<QuizViewProps> = ({
           </div>
         </div>
         {showAnswer && (
-          <div className="mt-6 p-4 rounded-lg bg-slate-50 border border-slate-200 animate-fade-in">
+          <div className="mt-6 p-4 rounded-lg bg-slate-50 border border-slate-200 animate-slide-up">
             <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                 <div className='flex-grow'>
                     <div className="flex items-center justify-between gap-4 mb-2">
@@ -564,11 +685,11 @@ const QuizView: React.FC<QuizViewProps> = ({
                         <button
                             onClick={() => handlePlayAudio(currentQuestion.explanation, 'explanation')}
                             disabled={!!isAudioLoading}
-                            className="p-2 rounded-full bg-sky-100 text-sky-800 hover:bg-sky-200 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
+                            className="p-2 rounded-full bg-slate-700 border-2 border-slate-600 text-white hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
                             aria-label="הקרא הסבר"
                         >
                             {isAudioLoading === 'explanation' ? (
-                                <div className="w-5 h-5 border-2 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
+                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                             ) : (
                                 <SpeakerIcon className="h-5 w-5" />
                             )}

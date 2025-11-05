@@ -4,10 +4,12 @@ import { supabase } from './authService';
 let apiKeysCache: {
   openai: string | null;
   gemini: string | null;
+  googleCloudTTS: string | null;
   timestamp: number;
 } = {
   openai: null,
   gemini: null,
+  googleCloudTTS: null,
   timestamp: 0,
 };
 
@@ -18,7 +20,7 @@ const CACHE_TTL = 3600000;
  * Fetches API keys from Supabase secrets
  * Uses Edge Function to securely retrieve secrets
  */
-async function fetchApiKeysFromSupabase(): Promise<{ openai: string; gemini: string }> {
+async function fetchApiKeysFromSupabase(): Promise<{ openai: string; gemini: string; googleCloudTTS?: string }> {
   try {
     // Call Supabase Edge Function to get API keys
     // The Edge Function will access Supabase secrets securely
@@ -55,6 +57,7 @@ async function fetchApiKeysFromSupabase(): Promise<{ openai: string; gemini: str
     return {
       openai: data.openai,
       gemini: data.gemini,
+      googleCloudTTS: data.googleCloudTTS || undefined,
     };
   } catch (error) {
     // If it's a timeout or network error, re-throw a special error to indicate fallback should happen
@@ -85,6 +88,7 @@ export async function getOpenAIKey(): Promise<string> {
     apiKeysCache = {
       openai: keys.openai,
       gemini: keys.gemini,
+      googleCloudTTS: keys.googleCloudTTS || null,
       timestamp: now,
     };
 
@@ -117,6 +121,7 @@ export async function getGeminiKey(): Promise<string> {
     apiKeysCache = {
       openai: keys.openai,
       gemini: keys.gemini,
+      googleCloudTTS: keys.googleCloudTTS || null,
       timestamp: now,
     };
 
@@ -132,12 +137,48 @@ export async function getGeminiKey(): Promise<string> {
 }
 
 /**
+ * Gets Google Cloud Text-to-Speech API key from Supabase secrets (with caching)
+ */
+export async function getGoogleCloudTTSKey(): Promise<string | null> {
+  // Check cache first
+  const now = Date.now();
+  if (apiKeysCache.googleCloudTTS && (now - apiKeysCache.timestamp) < CACHE_TTL) {
+    return apiKeysCache.googleCloudTTS;
+  }
+
+  try {
+    // Fetch from Supabase
+    const keys = await fetchApiKeysFromSupabase();
+    
+    // Update cache
+    apiKeysCache = {
+      openai: keys.openai,
+      gemini: keys.gemini,
+      googleCloudTTS: keys.googleCloudTTS || null,
+      timestamp: now,
+    };
+
+    return keys.googleCloudTTS || null;
+  } catch (error) {
+    // If Edge Function is unavailable, return null to trigger env fallback
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (errorMsg.includes('EDGE_FUNCTION_UNAVAILABLE')) {
+      // Fallback to environment variable
+      return process.env.GOOGLE_CLOUD_TTS_API_KEY || null;
+    }
+    // Fallback to environment variable
+    return process.env.GOOGLE_CLOUD_TTS_API_KEY || null;
+  }
+}
+
+/**
  * Clears the API keys cache (useful for testing or forced refresh)
  */
 export function clearApiKeysCache(): void {
   apiKeysCache = {
     openai: null,
     gemini: null,
+    googleCloudTTS: null,
     timestamp: 0,
   };
 }

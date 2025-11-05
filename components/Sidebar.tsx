@@ -77,12 +77,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
                     disabled={examTool.disabled}
                     className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-md transition-colors duration-200 shadow-sm border ${
                     currentView === examTool.id
-                        ? 'bg-sky-100 text-sky-700 font-bold border-sky-300'
-                        : 'bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 border-slate-200'
+                        ? 'bg-gradient-to-br from-sky-600 to-sky-700 text-white font-bold border-sky-500 shadow-md'
+                        : 'bg-gradient-to-br from-sky-500 to-sky-600 text-white border-sky-400 hover:from-sky-600 hover:to-sky-700 hover:shadow-lg'
                     } ${examTool.disabled ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
                     title={examTool.disabled ? 'אימות אימייל נדרש' : ''}
                 >
-                    <examTool.icon className="h-5 w-5 ml-3" />
+                    <examTool.icon className={`h-5 w-5 ml-3 ${examTool.disabled ? '' : 'text-white'}`} />
                     {examTool.label}
                 </button>
             </li>

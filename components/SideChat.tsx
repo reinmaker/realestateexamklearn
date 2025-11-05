@@ -47,9 +47,11 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
         try {
             const newChat = await createExplanationChatSession(documentContent, context, userName);
             // Handle both OpenAI and Gemini chat sessions
+            // Initial message is more specific - ask about the quiz question that was presented
+            const initialMessage = "אנא הסבר את השאלה ואת הנושא שנלמד. אני רוצה להבין יותר לעומק.";
             const initialResponse = newChat.type === 'openai' 
-              ? await continueChat(newChat, "אנא הסבר את הנושא לעומק.", [])
-              : await newChat.sendMessage({ message: "אנא הסבר את הנושא לעומק." });
+              ? await continueChat(newChat, initialMessage, [])
+              : await newChat.sendMessage({ message: initialMessage });
             const newSession: ChatSession = {
                 chat: newChat,
                 history: [{ role: 'model', text: typeof initialResponse === 'string' ? initialResponse : initialResponse.text }],
@@ -200,7 +202,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
 
         <button 
             onClick={() => setIsOpen(!isOpen)}
-            className="fixed bottom-4 left-4 z-40 w-16 h-16 bg-sky-600 text-white rounded-full shadow-lg flex items-center justify-center transform transition-all duration-300 hover:bg-sky-700 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
+            className="fixed bottom-4 left-4 z-40 w-16 h-16 bg-slate-700 border-2 border-slate-600 text-white rounded-full shadow-lg flex items-center justify-center transform transition-all duration-300 hover:bg-slate-600 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500"
             aria-label={isOpen ? "סגור צ'אט" : "פתח צ'אט עם המורה"}
         >
             {isOpen ? <CloseIcon className="w-8 h-8" /> : <AIAvatarIcon className="h-14 w-14" />}

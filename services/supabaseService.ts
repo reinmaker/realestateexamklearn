@@ -152,9 +152,10 @@ export async function getDbQuestionsAsQuiz(
   onProgress?: (questions: QuizQuestion[]) => void
 ): Promise<QuizQuestion[]> {
   try {
-    // Fetch questions from DB immediately (fast)
-    // fetchQuestionsFromDB now handles randomization, so we get a random set
-    const dbQuestions = await fetchQuestionsFromDB(count);
+    // Fetch MORE questions than needed to account for questions that might be skipped
+    // We'll fetch 2x the count to ensure we get enough valid questions
+    const fetchCount = Math.max(count * 2, 50);
+    const dbQuestions = await fetchQuestionsFromDB(fetchCount);
     
     if (dbQuestions.length === 0) {
       console.warn('No questions found in database');
@@ -173,14 +174,19 @@ export async function getDbQuestionsAsQuiz(
     
     // Process questions with options first (fast path - use pre-computed answers if available)
     for (const dbQuestion of questionsWithOptions) {
+      // Stop if we have enough questions
+      if (allQuizQuestions.length >= count) {
+        break;
+      }
+      
       try {
         let convertedQuestion: QuizQuestion;
         let correctAnswerText: string;
         let shuffledOptions: string[];
         let correctAnswerIndex: number;
 
-        // Check if answer and explanation are already pre-computed
-        if (dbQuestion.answer && dbQuestion.explanation) {
+        // Check if answer exists (explanation is optional - we can use empty string if missing)
+        if (dbQuestion.answer) {
           // Check if answer is stored as an index (number as string) or as text
           const answerIndex = parseInt(dbQuestion.answer, 10);
           
@@ -196,16 +202,13 @@ export async function getDbQuestionsAsQuiz(
             // We'll only skip if it's completely invalid
             if (!dbQuestion.options!.some(opt => opt.trim() === correctAnswerText.trim() || opt.includes(correctAnswerText) || correctAnswerText.includes(opt))) {
               // Answer text is completely invalid - skip this question rather than making API call
-              console.warn(`Invalid pre-computed answer for question ${dbQuestion.question_number}, skipping API call to avoid unnecessary requests`);
-              // Use first option as fallback instead of making API call
-              correctAnswerText = dbQuestion.options![0];
+              console.warn(`Invalid pre-computed answer for question ${dbQuestion.question_number}, skipping to avoid API call`);
+              continue; // Skip this question
             }
           }
         } else {
-          // Missing answer/explanation - skip this question to avoid API calls
-          // We should pre-compute answers for all questions in the DB
-          console.warn(`Question ${dbQuestion.question_number} missing answer/explanation, skipping to avoid API call`);
-          // Skip this question entirely - don't add it to the quiz
+          // Missing answer - skip this question (we need an answer to determine correctness)
+          console.warn(`Question ${dbQuestion.question_number} missing answer, skipping`);
           continue;
         }
 
@@ -225,7 +228,7 @@ export async function getDbQuestionsAsQuiz(
           question: dbQuestion.question_text,
           options: shuffledOptions,
           correctAnswerIndex: correctAnswerIndex,
-          explanation: dbQuestion.explanation || '' // Use existing explanation if available
+          explanation: dbQuestion.explanation || 'לא קיים הסבר לשאלה זו.' // Use existing explanation if available, or default message
         };
 
         allQuizQuestions.push(convertedQuestion);
@@ -240,8 +243,65 @@ export async function getDbQuestionsAsQuiz(
       }
     }
     
-    // Process questions without options - batch them all in one API call
-    if (questionsWithoutOptions.length > 0) {
+    // If we still don't have enough questions, fetch more
+    if (allQuizQuestions.length < count) {
+      const remaining = count - allQuizQuestions.length;
+      console.log(`Only got ${allQuizQuestions.length} valid questions, need ${remaining} more. Fetching additional questions...`);
+      
+      // Fetch more questions to fill the gap
+      const additionalCount = remaining * 2; // Fetch 2x to account for skipped ones
+      const additionalQuestions = await fetchQuestionsFromDB(additionalCount);
+      const additionalWithOptions = additionalQuestions.filter(q => q.options && Array.isArray(q.options) && q.options.length === 4);
+      
+      for (const dbQuestion of additionalWithOptions) {
+        if (allQuizQuestions.length >= count) {
+          break;
+        }
+        
+        try {
+          if (!dbQuestion.answer) {
+            continue; // Skip if no answer
+          }
+          
+          const answerIndex = parseInt(dbQuestion.answer, 10);
+          let correctAnswerText: string;
+          
+          if (!isNaN(answerIndex) && answerIndex >= 0 && answerIndex < dbQuestion.options!.length) {
+            correctAnswerText = dbQuestion.options![answerIndex];
+          } else {
+            correctAnswerText = dbQuestion.answer;
+            if (!dbQuestion.options!.some(opt => opt.trim() === correctAnswerText.trim() || opt.includes(correctAnswerText) || correctAnswerText.includes(opt))) {
+              continue; // Skip if answer is invalid
+            }
+          }
+          
+          const shuffledOptions = [...dbQuestion.options!].sort(() => Math.random() - 0.5);
+          const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
+          
+          if (correctAnswerIndex === -1) {
+            continue; // Skip if answer not found
+          }
+          
+          const convertedQuestion: QuizQuestion = {
+            question: dbQuestion.question_text,
+            options: shuffledOptions,
+            correctAnswerIndex: correctAnswerIndex,
+            explanation: dbQuestion.explanation || 'לא קיים הסבר לשאלה זו.'
+          };
+          
+          allQuizQuestions.push(convertedQuestion);
+          
+          if (onProgress) {
+            onProgress([...allQuizQuestions]);
+          }
+        } catch (error) {
+          console.error(`Error processing additional question ${dbQuestion.question_number}:`, error);
+        }
+      }
+    }
+    
+    // Process questions without options - batch them all in one API call (only if we still need more)
+    if (allQuizQuestions.length < count && questionsWithoutOptions.length > 0) {
       try {
         // Generate all questions without options in a single API call
         const questionsText = questionsWithoutOptions

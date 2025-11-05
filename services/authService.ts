@@ -171,7 +171,7 @@ export async function signInWithGoogle(): Promise<{ error: Error | null }> {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}`,
+        redirectTo: `${window.location.origin}/`,
         queryParams: {
           access_type: 'offline',
           prompt: 'consent',
@@ -219,7 +219,21 @@ export async function signOut(): Promise<{ error: Error | null }> {
  */
 export async function getCurrentUser(): Promise<User | null> {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    // First check for session (handles OAuth callback)
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (session?.user) {
+      return {
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
+        avatar_url: session.user.user_metadata?.avatar_url,
+        email_confirmed: !!session.user.email_confirmed_at,
+      };
+    }
+    
+    // Fallback to getUser if no session
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
     
     if (!user) {
       return null;

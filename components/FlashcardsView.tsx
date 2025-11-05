@@ -269,11 +269,11 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                 <button
                     onClick={() => handlePlayAudio(currentCard.question, 'question')}
                     disabled={!!isAudioLoading}
-                    className="p-2 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
+                    className="p-2 rounded-full bg-slate-700 border-2 border-slate-600 text-white hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
                     aria-label="הקרא שאלה"
                 >
                     {isAudioLoading === 'question' ? (
-                        <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     ) : (
                         <SpeakerIcon className="h-5 w-5" />
                     )}
@@ -332,11 +332,11 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                  <button
                     onClick={() => handlePlayAudio(currentCard.answer, 'answer')}
                     disabled={!!isAudioLoading}
-                    className="p-2 rounded-full bg-sky-100 text-sky-800 hover:bg-sky-200 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
+                    className="p-2 rounded-full bg-slate-700 border-2 border-slate-600 text-white hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
                     aria-label="הקרא תשובה"
                 >
                     {isAudioLoading === 'answer' ? (
-                        <div className="w-5 h-5 border-2 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     ) : (
                         <SpeakerIcon className="h-5 w-5" />
                     )}

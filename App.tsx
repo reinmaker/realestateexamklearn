@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { ViewType, QuizResult, QuizQuestion, Flashcard, QuizProgress, ChatSession, AnalysisResult, FlashcardsProgress } from './types';
 import Sidebar from './components/Sidebar';
 import HomeView from './components/HomeView';
@@ -19,6 +20,7 @@ import { categorizeQuestionsByTopic, calculateTopicProgress, getWeakAndStrongTop
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true); // Track initial auth check
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [appError, setAppError] = useState<string | null>(null);
   const [sideChatContext, setSideChatContext] = useState('');
@@ -55,6 +57,8 @@ const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzedHistoryCount, setAnalyzedHistoryCount] = useState(0);
+  const [examAnalysis, setExamAnalysis] = useState<AnalysisResult | null>(null);
+  const [isAnalyzingExam, setIsAnalyzingExam] = useState(false);
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const analysisRef = useRef<AnalysisResult | null>(null);
   const [topicProgress, setTopicProgress] = useState<Map<string, { totalQuestions: number; correctAnswers: number; incorrectAnswers: number; accuracy: number }>>(new Map());
@@ -93,6 +97,45 @@ const App: React.FC = () => {
   const INITIAL_FLASHCARDS_FROM_BANK = 1;
   const FLASHCARD_AI_BATCH_SIZE = 8;
 
+  // Check for OAuth errors in URL on mount
+  useEffect(() => {
+    const checkOAuthError = () => {
+      // Check both query params and hash params
+      const urlParams = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      
+      const error = urlParams.get('error') || hashParams.get('error');
+      const errorDescription = urlParams.get('error_description') || hashParams.get('error_description');
+      const errorCode = urlParams.get('error_code') || hashParams.get('error_code');
+      
+      if (error) {
+        // Decode the error description
+        let decodedDescription = errorDescription || '';
+        try {
+          decodedDescription = decodeURIComponent(decodedDescription.replace(/\+/g, ' '));
+        } catch (e) {
+          // If decoding fails, use the original
+          decodedDescription = errorDescription || '';
+        }
+        
+        // Check if it's an OAuth exchange error
+        if (errorCode === 'unexpected_failure' || decodedDescription.includes('Unable to exchange external code')) {
+          setAppError('שגיאה בהתחברות עם גוגל. אנא ודא שההגדרות ב-Supabase נכונות. ראה את קובץ GOOGLE_OAUTH_SETUP.md להנחיות.');
+        } else if (decodedDescription) {
+          // Use the decoded error description
+          setAppError(decodedDescription);
+        } else {
+          setAppError('שגיאה בהתחברות עם גוגל. נסה שוב מאוחר יותר.');
+        }
+        
+        // Clear error from URL
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    };
+    
+    checkOAuthError();
+  }, []);
 
   useEffect(() => {
     // CRITICAL: Skip if we're just updating topics (not adding new results)
@@ -113,6 +156,7 @@ const App: React.FC = () => {
     if (hasNewHistory && !isGenerating && !isAnalyzingRef.current) {
       isAnalyzingRef.current = true;
       setIsAnalyzing(true);
+      setAnalysis(null); // Clear old analysis to show only loading state
       setAppError(null);
       const userName = currentUser?.name || currentUser?.email?.split('@')[0] || undefined;
       
@@ -347,13 +391,23 @@ const App: React.FC = () => {
   const regenerateQuiz = useCallback(async () => {
     // CRITICAL: Don't regenerate if user is actively answering a question
     // This prevents disrupting their current question
+    // EXCEPTION: If quiz is finished, always allow regeneration (user clicked "עשה בוחן נוסף")
     const currentIndex = quizProgress.currentQuestionIndex;
     const currentSelectedAnswer = quizProgress.selectedAnswer;
-    const userIsActive = currentIndex > 0 || currentSelectedAnswer !== null || quizProgress.showAnswer;
+    const isQuizFinished = quizProgress.isFinished;
     
-    if (userIsActive && quizQuestions && quizQuestions.length > 0) {
-      console.log('User is actively answering - skipping quiz regeneration to preserve current question');
-      return;
+    // If quiz is finished, always allow regeneration - reset progress first
+    if (isQuizFinished) {
+      resetQuizProgress();
+      // Continue with regeneration below
+    } else {
+      // Quiz is not finished - check if user is actively answering
+      const userIsActive = currentIndex > 0 || currentSelectedAnswer !== null || quizProgress.showAnswer;
+      
+      if (userIsActive && quizQuestions && quizQuestions.length > 0) {
+        console.log('User is actively answering - skipping quiz regeneration to preserve current question');
+        return;
+      }
     }
     
     // Capture the initial state - user should not have started when we begin
@@ -384,73 +438,38 @@ const App: React.FC = () => {
           topicProgressMap: Array.from(topicProgress.entries())
         });
 
-        let dbQuestions: QuizQuestion[];
+        let dbQuestions: QuizQuestion[] = []; // Quiz always uses AI, never DB
         let aiQuestions: QuizQuestion[] = [];
 
+        // Quiz always uses AI-generated questions (never DB)
+        // If we have enough data, use topic-based generation (70% weak, 30% strong)
+        // If we don't have enough data, use general AI generation
+        
         if (!hasEnoughData) {
-          // Not enough data yet - use all DB questions (25 questions)
-          console.log('Not enough progress data - using all DB questions');
-          dbQuestions = await getDbQuestionsAsQuiz(
-            TOTAL_QUESTIONS, 
-            documentContent,
-            (dbQuestions) => {
-              // Progress callback for loading bar
-              const currentProgress = quizProgressRef.current;
-              const currentState = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null;
-              
-              if (!currentState) {
-                console.log('Progress update: Setting DB questions, length:', dbQuestions.length);
-                // Force React to update by creating a new array reference
-                const newQuestions = Array.from(dbQuestions);
-                setQuizQuestions(newQuestions);
-                // Update ref immediately so next iteration sees the latest
-                quizQuestionsRef.current = newQuestions;
-              } else {
-                console.log('User started - stopping DB progress updates');
-                userBecameActiveRef.current = true;
-              }
-            }
-          );
-          // No AI questions needed when using all DB questions
-          aiQuestions = [];
-        } else {
-          // Enough data - generate ALL questions using AI based on weak/strong topics (25 questions, 70% weak, 30% strong)
-          console.log('Enough progress data - generating ALL questions using AI based on weak/strong topics');
-          
-          // No DB questions - generate all 25 questions with AI
-          dbQuestions = [];
-          
-          // Generate all AI questions based on topic progress - 70% weak, 30% strong
-          const { weakTopics, strongTopics } = getWeakAndStrongTopics(topicProgress);
-          
-          console.log('Topic analysis:', {
-            weakTopics: weakTopics.length,
-            strongTopics: strongTopics.length,
-            weakTopicsList: weakTopics,
-            strongTopicsList: strongTopics
-          });
+          // Not enough data yet - generate all 25 questions using AI (general generation, not topic-based)
+          console.log('Not enough progress data - generating all 25 questions using AI (general)');
           
           // Generate questions in batches to show progress during generation
           const batchSize = 5; // Generate 5 questions at a time
           const totalBatches = Math.ceil(TOTAL_QUESTIONS / batchSize);
           aiQuestions = [];
           
-          // Show initial progress (5%)
+          // Show initial progress
           const currentProgress = quizProgressRef.current;
           const currentState = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null;
           if (!currentState) {
             setQuizQuestions([]);
-            console.log('Starting AI generation - showing initial progress');
+            console.log('Starting AI generation (general) - showing initial progress');
           }
           
           for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-            // Check if user started - if so, stop updating progress
+            // Check if user started - if so, continue generating but don't update UI progressively
+            // IMPORTANT: Don't break - continue generating all questions in background
             const progressCheck = quizProgressRef.current;
             const stateCheck = progressCheck.currentQuestionIndex > 0 || progressCheck.selectedAnswer !== null;
-            if (stateCheck) {
-              console.log('User started - stopping AI generation progress updates');
+            if (stateCheck && !userBecameActiveRef.current) {
+              console.log('User started - continuing generation in background without UI updates');
               userBecameActiveRef.current = true;
-              break;
             }
             
             const remainingQuestions = TOTAL_QUESTIONS - aiQuestions.length;
@@ -469,7 +488,13 @@ const App: React.FC = () => {
             let batchQuestions: QuizQuestion[] = [];
             
             try {
-              if (weakTopics.length > 0 || strongTopics.length > 0) {
+              if (!hasEnoughData) {
+                // Not enough data - generate general AI questions
+                batchQuestions = await generateQuiz(documentContent, questionsInThisBatch);
+              } else {
+                // Enough data - generate based on weak/strong topics (70% weak, 30% strong)
+                const { weakTopics, strongTopics } = getWeakAndStrongTopics(topicProgress);
+                
                 // Calculate how many questions to generate from weak vs strong topics
                 const weakCount = Math.round(questionsInThisBatch * 0.7);
                 const strongCount = questionsInThisBatch - weakCount;
@@ -491,9 +516,6 @@ const App: React.FC = () => {
                   const generalBatch = await generateQuiz(documentContent, strongCount);
                   batchQuestions.push(...generalBatch);
                 }
-              } else {
-                // Generate general questions if no topics identified
-                batchQuestions = await generateQuiz(documentContent, questionsInThisBatch);
               }
               
               // Randomize options for AI-generated questions
@@ -511,11 +533,25 @@ const App: React.FC = () => {
               
               aiQuestions.push(...randomizedBatch);
               
-              // Update progress with actual questions
+              // Update ref always (for internal tracking)
+              quizQuestionsRef.current = [...aiQuestions];
+              
+              // Update UI progressively only if user hasn't started
               if (!stateCheck) {
                 setQuizQuestions([...aiQuestions]);
-                quizQuestionsRef.current = [...aiQuestions];
                 console.log(`Batch ${batchIndex + 1} complete: ${aiQuestions.length}/${TOTAL_QUESTIONS} questions generated`);
+              } else {
+                // User started - append new questions to the END of existing array to avoid disrupting current question
+                const currentQuizQuestions = quizQuestionsRef.current || [];
+                const existingLength = currentQuizQuestions.length;
+                if (aiQuestions.length > existingLength) {
+                  // Get only the NEW questions (those beyond what we already have)
+                  const newQuestions = aiQuestions.slice(existingLength);
+                  // Append new questions to the END of existing questions
+                  setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
+                  quizQuestionsRef.current = [...currentQuizQuestions, ...newQuestions];
+                  console.log(`Batch ${batchIndex + 1} complete (background): Added ${newQuestions.length} new questions to end (total: ${aiQuestions.length}/${TOTAL_QUESTIONS})`);
+                }
               }
               
             } catch (error) {
@@ -524,26 +560,185 @@ const App: React.FC = () => {
             }
           }
           
-          // After all batches are complete, set the final shuffled questions
-          // But only if user hasn't started
-          const finalProgress = quizProgressRef.current;
-          const finalState = finalProgress.currentQuestionIndex > 0 || finalProgress.selectedAnswer !== null;
-          if (!finalState && aiQuestions.length > 0) {
-            // Shuffle all AI questions for final display
-            const shuffledAiQuestions = [...aiQuestions].sort(() => Math.random() - 0.5);
-            setQuizQuestions(shuffledAiQuestions);
-            quizQuestionsRef.current = shuffledAiQuestions;
-            console.log('Final: Setting all AI questions (shuffled), length:', shuffledAiQuestions.length);
-          } else if (finalState) {
-            console.log('User started - skipping final shuffle update');
+          // After all batches are complete, ensure all questions are in the array
+          // Always add questions even if user has started - just don't disrupt their current question
+          if (aiQuestions.length > 0) {
+            const currentQuizQuestions = quizQuestionsRef.current || [];
+            const currentProgress = quizProgressRef.current;
+            const userHasStarted = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null;
+            
+            // If we have more AI questions than currently in state, add them
+            if (currentQuizQuestions.length < aiQuestions.length) {
+              if (userHasStarted) {
+                // User has started - append only new questions to the end
+                const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
+                // Shuffle only the new questions before appending
+                const shuffledNewQuestions = [...newQuestions].sort(() => Math.random() - 0.5);
+                setQuizQuestions(prev => [...(prev || []), ...shuffledNewQuestions]);
+                quizQuestionsRef.current = [...currentQuizQuestions, ...shuffledNewQuestions];
+                console.log('Final: Added', shuffledNewQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
+              } else {
+                // User hasn't started - shuffle all questions and set
+                const shuffledAiQuestions = [...aiQuestions].sort(() => Math.random() - 0.5);
+                setQuizQuestions(shuffledAiQuestions);
+                quizQuestionsRef.current = shuffledAiQuestions;
+                console.log('Final: Added all AI questions (shuffled), length:', shuffledAiQuestions.length);
+              }
+            } else {
+              console.log('Final: All AI questions already added, length:', aiQuestions.length);
+            }
+          }
+        } else {
+          // Enough data - generate ALL questions using AI based on weak/strong topics (25 questions, 70% weak, 30% strong)
+          console.log('Enough progress data - generating ALL questions using AI based on weak/strong topics');
+          
+          // Generate all AI questions based on topic progress - 70% weak, 30% strong
+          const { weakTopics, strongTopics } = getWeakAndStrongTopics(topicProgress);
+          
+          console.log('Topic analysis:', {
+            weakTopics: weakTopics.length,
+            strongTopics: strongTopics.length,
+            weakTopicsList: weakTopics,
+            strongTopicsList: strongTopics
+          });
+          
+          // Generate questions in batches to show progress during generation
+          const batchSize = 5; // Generate 5 questions at a time
+          const totalBatches = Math.ceil(TOTAL_QUESTIONS / batchSize);
+          aiQuestions = [];
+          
+          // Show initial progress
+          const currentProgress = quizProgressRef.current;
+          const currentState = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null;
+          if (!currentState) {
+            setQuizQuestions([]);
+            console.log('Starting AI generation (topic-based) - showing initial progress');
+          }
+          
+          for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+            // Check if user started - if so, continue generating but don't update UI progressively
+            // IMPORTANT: Don't break - continue generating all questions in background
+            const progressCheck = quizProgressRef.current;
+            const stateCheck = progressCheck.currentQuestionIndex > 0 || progressCheck.selectedAnswer !== null;
+            if (stateCheck && !userBecameActiveRef.current) {
+              console.log('User started - continuing generation in background without UI updates');
+              userBecameActiveRef.current = true;
+            }
+            
+            const remainingQuestions = TOTAL_QUESTIONS - aiQuestions.length;
+            const questionsInThisBatch = Math.min(batchSize, remainingQuestions);
+            
+            console.log(`Generating batch ${batchIndex + 1}/${totalBatches}: ${questionsInThisBatch} questions`);
+            
+            if (!stateCheck) {
+              // Show current progress based on questions already generated
+              const currentProgressPercent = Math.round((aiQuestions.length / TOTAL_QUESTIONS) * 100);
+              console.log(`Starting batch ${batchIndex + 1}/${totalBatches}: Current progress ${currentProgressPercent}% (${aiQuestions.length}/${TOTAL_QUESTIONS} questions)`);
+            }
+            
+            let batchQuestions: QuizQuestion[] = [];
+            
+            try {
+              // Generate based on weak/strong topics (70% weak, 30% strong)
+              // Calculate how many questions to generate from weak vs strong topics
+              const weakCount = Math.round(questionsInThisBatch * 0.7);
+              const strongCount = questionsInThisBatch - weakCount;
+              
+              // Generate weak topic questions
+              if (weakCount > 0 && weakTopics.length > 0) {
+                const weakBatch = await generateTargetedQuiz(weakTopics, documentContent, weakCount);
+                batchQuestions.push(...weakBatch);
+              } else if (weakCount > 0) {
+                const generalBatch = await generateQuiz(documentContent, weakCount);
+                batchQuestions.push(...generalBatch);
+              }
+              
+              // Generate strong topic questions
+              if (strongCount > 0 && strongTopics.length > 0) {
+                const strongBatch = await generateTargetedQuiz(strongTopics, documentContent, strongCount);
+                batchQuestions.push(...strongBatch);
+              } else if (strongCount > 0) {
+                const generalBatch = await generateQuiz(documentContent, strongCount);
+                batchQuestions.push(...generalBatch);
+              }
+              
+              // Randomize options for AI-generated questions
+              const randomizedBatch = batchQuestions.map(q => {
+                const correctAnswerText = q.options[q.correctAnswerIndex];
+                const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
+                const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
+                
+                return {
+                  ...q,
+                  options: shuffledOptions,
+                  correctAnswerIndex: correctAnswerIndex !== -1 ? correctAnswerIndex : 0
+                };
+              });
+              
+              aiQuestions.push(...randomizedBatch);
+              
+              // Update ref always (for internal tracking)
+              quizQuestionsRef.current = [...aiQuestions];
+              
+              // Update UI progressively only if user hasn't started
+              if (!stateCheck) {
+                setQuizQuestions([...aiQuestions]);
+                console.log(`Batch ${batchIndex + 1} complete: ${aiQuestions.length}/${TOTAL_QUESTIONS} questions generated`);
+              } else {
+                // User started - append new questions to the END of existing array to avoid disrupting current question
+                const currentQuizQuestions = quizQuestionsRef.current || [];
+                const existingLength = currentQuizQuestions.length;
+                if (aiQuestions.length > existingLength) {
+                  // Get only the NEW questions (those beyond what we already have)
+                  const newQuestions = aiQuestions.slice(existingLength);
+                  // Append new questions to the END of existing questions
+                  setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
+                  quizQuestionsRef.current = [...currentQuizQuestions, ...newQuestions];
+                  console.log(`Batch ${batchIndex + 1} complete (background): Added ${newQuestions.length} new questions to end (total: ${aiQuestions.length}/${TOTAL_QUESTIONS})`);
+                }
+              }
+              
+            } catch (error) {
+              console.error(`Error generating batch ${batchIndex + 1}:`, error);
+              // Continue with next batch even if one fails
+            }
+          }
+          
+          // After all batches are complete, ensure all questions are in the array
+          if (aiQuestions.length > 0) {
+            const currentQuizQuestions = quizQuestionsRef.current || [];
+            const currentProgress = quizProgressRef.current;
+            const userHasStarted = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null;
+            
+            // If we have more AI questions than currently in state, add them
+            if (currentQuizQuestions.length < aiQuestions.length) {
+              if (userHasStarted) {
+                // User has started - append only new questions to the end
+                const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
+                // Shuffle only the new questions before appending
+                const shuffledNewQuestions = [...newQuestions].sort(() => Math.random() - 0.5);
+                setQuizQuestions(prev => [...(prev || []), ...shuffledNewQuestions]);
+                quizQuestionsRef.current = [...currentQuizQuestions, ...shuffledNewQuestions];
+                console.log('Final: Added', shuffledNewQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
+              } else {
+                // User hasn't started - shuffle all questions and set
+                const shuffledAiQuestions = [...aiQuestions].sort(() => Math.random() - 0.5);
+                setQuizQuestions(shuffledAiQuestions);
+                quizQuestionsRef.current = shuffledAiQuestions;
+                console.log('Final: Added all AI questions (shuffled), length:', shuffledAiQuestions.length);
+              }
+            } else {
+              console.log('Final: All AI questions already added, length:', aiQuestions.length);
+            }
           }
         }
         
-        // Deduplicate questions if we have both DB and AI questions
+        // Quiz always uses AI questions only (never DB) - deduplicate and finalize
         let finalAiQuestions = aiQuestions;
-        let finalDbQuestions = dbQuestions;
+        let finalDbQuestions: QuizQuestion[] = []; // Quiz never uses DB questions
         
-        if (aiQuestions.length > 0 && dbQuestions.length > 0) {
+        // Since quiz always uses AI, we skip DB+AI combination logic
+        if (false && aiQuestions.length > 0 && dbQuestions.length > 0) {
           // CRITICAL: Deduplicate questions before combining
           // Remove AI questions that are too similar to DB questions
           const dbQuestionTexts = new Set(dbQuestions.map(q => q.question.toLowerCase().trim()));
@@ -607,73 +802,107 @@ const App: React.FC = () => {
               // Use what we have if generation fails
             }
           }
-        } else if (aiQuestions.length > 0 && dbQuestions.length === 0) {
-          // All AI questions - just deduplicate among themselves
+        } else if (aiQuestions.length > 0) {
+          // Quiz always uses AI questions - deduplicate among themselves
           finalAiQuestions = deduplicateQuestions(aiQuestions);
-        } else {
-          // All DB questions - no deduplication needed
-          finalAiQuestions = [];
+          
+          // If we lost some questions due to deduplication, generate more if needed
+          if (finalAiQuestions.length < TOTAL_QUESTIONS) {
+            const needed = TOTAL_QUESTIONS - finalAiQuestions.length;
+            console.log(`Generating ${needed} additional unique AI questions to reach ${TOTAL_QUESTIONS}`);
+            try {
+              let additionalQuestions: QuizQuestion[];
+              if (hasEnoughData) {
+                // Use topic-based generation
+                const { weakTopics, strongTopics } = getWeakAndStrongTopics(topicProgress);
+                if (weakTopics.length > 0 || strongTopics.length > 0) {
+                  additionalQuestions = await generateQuizWithTopicDistribution(
+                    weakTopics,
+                    strongTopics,
+                    documentContent,
+                    needed
+                  );
+                } else {
+                  additionalQuestions = await generateQuiz(documentContent, needed);
+                }
+              } else {
+                // Use general generation
+                additionalQuestions = await generateQuiz(documentContent, needed);
+              }
+              
+              // Randomize options for additional questions
+              const randomizedAdditional = additionalQuestions.map(q => {
+                const correctAnswerText = q.options[q.correctAnswerIndex];
+                const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
+                const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
+                
+                return {
+                  ...q,
+                  options: shuffledOptions,
+                  correctAnswerIndex: correctAnswerIndex !== -1 ? correctAnswerIndex : 0
+                };
+              });
+              
+              // Deduplicate additional questions against existing ones
+              const existingTexts = new Set(finalAiQuestions.map(q => q.question.toLowerCase().trim()));
+              const uniqueAdditional = randomizedAdditional.filter(addQ => {
+                const addText = addQ.question.toLowerCase().trim();
+                return !Array.from(existingTexts).some(existingText => {
+                  const existingPrefix = existingText.substring(0, 50);
+                  const addPrefix = addText.substring(0, 50);
+                  return existingPrefix === addPrefix || 
+                         (addText.includes(existingPrefix) || existingText.includes(addPrefix)) ||
+                         (addText.length > 20 && existingText.length > 20 && 
+                          (addText.length < existingText.length * 1.2 && existingText.length < addText.length * 1.2) &&
+                          calculateSimilarity(addText, existingText) > 0.8);
+                });
+              });
+              
+              finalAiQuestions = [...finalAiQuestions, ...uniqueAdditional.slice(0, needed)];
+            } catch (error) {
+              console.error('Error generating additional unique questions:', error);
+              // Use what we have if generation fails
+            }
+          }
         }
         
-        // Only combine and set final questions if we have DB questions (not pure AI)
-        // If we generated all AI questions, they were already set progressively above
-        if (finalDbQuestions.length > 0) {
-          // We have DB questions - need to combine with AI questions
-          // CRITICAL: Check again if user has become active during generation
-          const currentProgress = quizProgressRef.current;
-          const currentStateAfterGeneration = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null || userBecameActiveRef.current;
-          
-          // CRITICAL: Check if we already have all questions
-          const currentQuestions = quizQuestionsRef.current;
-          const hasAllQuestions = currentQuestions && currentQuestions.length >= TOTAL_QUESTIONS;
-          
-          // CRITICAL: If user has started answering AND we already have all questions, DON'T update
-          // But if we don't have all questions yet, we need to update to add the AI questions
-          if (!currentStateAfterGeneration && !userHasStartedAtStart && !hasAllQuestions) {
-            // User hasn't started and we don't have all questions - safe to set new questions
-            // Combine DB and AI questions
-            const allQuestions = [...finalDbQuestions, ...finalAiQuestions];
-            // Deduplicate again to be safe
-            const uniqueQuestions = deduplicateQuestions(allQuestions);
-            const shuffledAllQuestions = [...uniqueQuestions].sort(() => Math.random() - 0.5);
-            setQuizQuestions(shuffledAllQuestions);
-          } else if (currentStateAfterGeneration && !hasAllQuestions) {
-            // User has started but we don't have all questions yet
-            // We need to add the AI questions, but preserve the user's current position
-            const allQuestions = [...finalDbQuestions, ...finalAiQuestions];
-            // Deduplicate again to be safe
-            const uniqueQuestions = deduplicateQuestions(allQuestions);
-            const shuffledAllQuestions = [...uniqueQuestions].sort(() => Math.random() - 0.5);
-            
-            // Try to preserve the user's current question if possible
-            if (currentQuestions && currentQuestions.length > 0 && currentProgress.currentQuestionIndex < currentQuestions.length) {
-              const currentQuestion = currentQuestions[currentProgress.currentQuestionIndex];
-              // Try to find the same question in the new array
-              const questionIndexInNewArray = shuffledAllQuestions.findIndex(q => 
-                q.question === currentQuestion.question ||
-                (q.question.includes(currentQuestion.question.substring(0, 50)) && 
-                 currentQuestion.question.includes(q.question.substring(0, 50)))
-              );
-              
-              if (questionIndexInNewArray !== -1 && questionIndexInNewArray !== currentProgress.currentQuestionIndex) {
-                // Found the same question - move it to the current index position
-                const preservedQuestion = shuffledAllQuestions[questionIndexInNewArray];
-                shuffledAllQuestions.splice(questionIndexInNewArray, 1);
-                shuffledAllQuestions.splice(currentProgress.currentQuestionIndex, 0, preservedQuestion);
-              }
-            }
-            
-            setQuizQuestions(shuffledAllQuestions);
-          } else if (hasAllQuestions) {
-            // We already have all questions - don't update to avoid disrupting user
-            console.log('Already have all questions - skipping question update to preserve current position');
-          } else {
-            // User is actively answering and we have all questions - don't update
-            console.log('User is on a question and we have all questions - skipping question update');
-          }
+        // Combine and set final questions - quiz always uses AI only
+        const currentQuestions = quizQuestionsRef.current;
+        const currentProgress = quizProgressRef.current;
+        const currentStateAfterGeneration = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null || userBecameActiveRef.current;
+        
+        // All questions are AI-generated (quiz never uses DB)
+        const allQuestions = [...finalAiQuestions];
+        
+        console.log('Final AI questions count:', allQuestions.length, 'Target:', TOTAL_QUESTIONS);
+        
+        // Deduplicate and shuffle
+        const uniqueQuestions = deduplicateQuestions(allQuestions);
+        console.log('After deduplication:', uniqueQuestions.length, 'questions');
+        
+        const shuffledAllQuestions = [...uniqueQuestions].sort(() => Math.random() - 0.5);
+        
+        // Ensure we have exactly TOTAL_QUESTIONS (or as many as possible)
+        const finalQuestions = shuffledAllQuestions.slice(0, TOTAL_QUESTIONS);
+        
+        console.log('Final questions to set:', finalQuestions.length, 'Target:', TOTAL_QUESTIONS);
+        
+        // Check if we already have all questions in state
+        const hasAllQuestions = currentQuestions && currentQuestions.length >= TOTAL_QUESTIONS;
+        
+        // Always ensure all questions are in the array, even if user has started
+        if (finalQuestions.length >= TOTAL_QUESTIONS) {
+          // We have all 25 questions - always add them
+          console.log('All', TOTAL_QUESTIONS, 'questions ready - setting quiz questions');
+          setQuizQuestions(finalQuestions);
+          quizQuestionsRef.current = finalQuestions;
+        } else if (finalQuestions.length > 0) {
+          // We don't have all 25 questions yet - add what we have
+          console.warn('Warning: Only generated', finalQuestions.length, 'out of', TOTAL_QUESTIONS, 'questions');
+          setQuizQuestions(finalQuestions);
+          quizQuestionsRef.current = finalQuestions;
         } else {
-          // All AI questions - already set progressively above, just ensure final shuffle was applied
-          console.log('All AI questions generated - final set should already be in place');
+          console.error('Error: No questions generated!');
         }
 
     } catch (error) {
@@ -785,13 +1014,13 @@ const App: React.FC = () => {
   }, [documentContent]);
   
   const regenerateExam = useCallback(async () => {
+    console.log('regenerateExam called - starting exam generation');
     setGenerationStatus(prev => ({ ...prev, exam: { generating: true } }));
 
     setAppError(null);
     setIsExamInProgress(false);
     setExamHistory([]);
-    resetExamProgress();
-    setExamQuestions(null);
+    // Note: Exam progress is managed in ExamView component, not here
 
     try {
         // Exam always uses all DB questions (no AI generation)
@@ -802,9 +1031,12 @@ const App: React.FC = () => {
           documentContent
         );
         
+        console.log(`Fetched ${dbQuestions.length} questions from DB for exam`);
+        
         if (dbQuestions.length === 0) {
           console.error('No questions fetched from database for exam');
           setAppError("לא נמצאו שאלות במסד הנתונים. אנא נסה שוב מאוחר יותר.");
+          setGenerationStatus(prev => ({ ...prev, exam: { generating: false } }));
           return;
         }
         
@@ -821,12 +1053,17 @@ const App: React.FC = () => {
 
     } catch (error) {
         console.error('Error generating exam:', error);
-        if (error instanceof Error) setAppError(error.message);
-        else setAppError("נכשל ביצירת שאלות המבחן. אנא נסה שוב.");
+        if (error instanceof Error) {
+          setAppError(error.message);
+          console.error('Exam generation error details:', error);
+        } else {
+          setAppError("נכשל ביצירת שאלות המבחן. אנא נסה שוב.");
+        }
     } finally {
-        setGenerationStatus(prev => ({ ...prev, exam: { ...prev.exam, generating: false } }));
+        setGenerationStatus(prev => ({ ...prev, exam: { generating: false } }));
+        console.log('regenerateExam completed - generation status set to false');
     }
-  }, [documentContent, topicProgress]);
+  }, [documentContent]);
 
   const handleLoginSuccess = useCallback(async (user: User) => {
     setCurrentUser(user);
@@ -895,88 +1132,162 @@ const App: React.FC = () => {
       }
     };
 
+    // Check for existing session immediately on mount (handles OAuth callback)
+    const checkInitialSession = async () => {
+      try {
+        // Wait a bit for OAuth callback to process (if it's an OAuth redirect)
+        // Check if there are OAuth callback parameters in the URL
+        const hasOAuthParams = window.location.search.includes('code=') || 
+                               window.location.hash.includes('access_token=') ||
+                               window.location.hash.includes('code=') ||
+                               window.location.hash.includes('type=recovery');
+        
+        if (hasOAuthParams) {
+          // OAuth callback detected - wait longer for Supabase to process hash fragments
+          console.log('OAuth callback detected, waiting for Supabase to process...');
+          // Wait longer for hash fragment processing
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Clear hash from URL after Supabase processes it
+          if (window.location.hash) {
+            // Remove hash but keep the path
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        }
+        
+        // Try multiple times to get the user (in case OAuth callback is still processing)
+        let user = null;
+        for (let i = 0; i < 5; i++) {
+          user = await getCurrentUser();
+          if (user) {
+            console.log('User found on attempt', i + 1);
+            break;
+          }
+          // Wait a bit before retrying (longer waits for OAuth)
+          if (i < 4) {
+            const waitTime = hasOAuthParams ? 500 : 300;
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          }
+        }
+        
+        if (user) {
+          console.log('Setting user from initial session check');
+          setCurrentUser(user);
+          // Initialize app state for initial session
+          const isNewUserSession = lastLoadedUserIdRef.current !== user.id;
+          if (isNewUserSession && !isLoadingUserDataRef.current) {
+            isLoadingUserDataRef.current = true;
+            lastLoadedUserIdRef.current = user.id;
+            
+            // Load all user data in parallel
+            const [analysisData, topicData, statsData] = await Promise.all([
+              getLatestUserAnalysis(user.id),
+              getTopicProgress(user.id),
+              getUserStats(user.id)
+            ]);
+            
+            if (!analysisData.error) {
+              if (analysisData.analysis) {
+                setAnalysis(analysisData.analysis);
+              }
+              const loadedQuizHistory = Array.isArray(analysisData.quizHistory) ? analysisData.quizHistory : [];
+              const loadedExamHistory = Array.isArray(analysisData.examHistory) ? analysisData.examHistory : [];
+              setQuizHistory(loadedQuizHistory);
+              setExamHistory(loadedExamHistory);
+            }
+            
+            if (!statsData.error && statsData.stats) {
+              setUserStats(statsData.stats);
+            }
+            
+            if (!topicData.error && topicData.topicProgress.size > 0) {
+              setTopicProgress(topicData.topicProgress);
+            }
+            
+            isLoadingUserDataRef.current = false;
+          }
+          await initializeAppState(user);
+        } else {
+          console.log('No user found after initial session check');
+        }
+      } catch (error) {
+        console.error('Error checking initial session:', error);
+      } finally {
+        setIsCheckingAuth(false);
+      }
+    };
+    
+    // Check initial session immediately
+    checkInitialSession();
+
     // Listen to auth state changes (this will handle both initial load and subsequent changes)
     const { data: { subscription } } = onAuthStateChange(async (user) => {
-      setCurrentUser(user);
-      if (!user) {
-        // User logged out - reset app state
-    setCurrentView('home');
-    setQuizHistory([]);
-    setExamHistory([]);
-    setQuizQuestions(null);
-    setExamQuestions(null);
-    setFlashcards(null);
-    setChatSession(null);
-    setIsExamInProgress(false);
-    resetQuizProgress();
-    resetFlashcardsProgress();
-    setAnalysis(null);
-    setIsAnalyzing(false);
-    setAnalyzedHistoryCount(0);
-        isInitialized = false;
-        isLoadingUserDataRef.current = false;
-        lastLoadedUserIdRef.current = null;
-      } else {
-        // User logged in - only load data if this is a new user session (user ID changed)
-        const isNewUserSession = lastLoadedUserIdRef.current !== user.id;
-        const needsDataLoad = isNewUserSession && !isLoadingUserDataRef.current;
+      console.log('Auth state change event:', user ? 'User logged in' : 'User logged out');
+      
+      if (user) {
+        // User found - always update
+        console.log('User found via auth state change');
+        setCurrentUser(user);
+        setIsCheckingAuth(false);
         
-        if (needsDataLoad) {
-          // New user session - load user data once
+        // Initialize app state for new session
+        const isNewUserSession = lastLoadedUserIdRef.current !== user.id;
+        if (isNewUserSession && !isLoadingUserDataRef.current) {
           isLoadingUserDataRef.current = true;
           lastLoadedUserIdRef.current = user.id;
           
-          // Load all user data in parallel (batch to reduce calls)
+          // Load all user data in parallel
           const [analysisData, topicData, statsData] = await Promise.all([
             getLatestUserAnalysis(user.id),
             getTopicProgress(user.id),
             getUserStats(user.id)
           ]);
           
-          // Set analysis and history (always set, even if empty, to ensure UI reflects current state)
           if (!analysisData.error) {
             if (analysisData.analysis) {
               setAnalysis(analysisData.analysis);
             }
-            // Always set history arrays (even if empty) so stats are calculated correctly
             const loadedQuizHistory = Array.isArray(analysisData.quizHistory) ? analysisData.quizHistory : [];
             const loadedExamHistory = Array.isArray(analysisData.examHistory) ? analysisData.examHistory : [];
-            
-            console.log('Setting history from DB:', {
-              quizHistory: loadedQuizHistory.length,
-              examHistory: loadedExamHistory.length
-            });
-            
             setQuizHistory(loadedQuizHistory);
             setExamHistory(loadedExamHistory);
-          } else {
-            console.error('Error loading analysis:', analysisData.error);
           }
           
-          // Set stats from database
           if (!statsData.error && statsData.stats) {
             setUserStats(statsData.stats);
-            console.log('Loaded user stats from DB:', statsData.stats);
-          } else if (!statsData.error && !statsData.stats) {
-            // New user - no stats yet
-            setUserStats(null);
-          } else {
-            console.error('Error loading stats:', statsData.error);
           }
           
-          // Set topic progress
           if (!topicData.error && topicData.topicProgress.size > 0) {
             setTopicProgress(topicData.topicProgress);
           }
           
-          // Stats are loaded but not directly displayed - HomeView computes from history
-          // This ensures stats are available if needed
-          
           isLoadingUserDataRef.current = false;
         }
         
-        // Always initialize app state (for both new and existing sessions)
-        initializeAppState(user);
+        await initializeAppState(user);
+      } else {
+        // No user - only update if we're done checking initial session
+        // Don't clear user during initial check to avoid race conditions
+        if (!isCheckingAuth) {
+          setCurrentUser(null);
+          // User logged out - reset app state
+          setCurrentView('home');
+          setQuizHistory([]);
+          setExamHistory([]);
+          setQuizQuestions(null);
+          setExamQuestions(null);
+          setFlashcards(null);
+          setChatSession(null);
+          setIsExamInProgress(false);
+          resetQuizProgress();
+          resetFlashcardsProgress();
+          setAnalysis(null);
+          setIsAnalyzing(false);
+          setAnalyzedHistoryCount(0);
+          isInitialized = false;
+          isLoadingUserDataRef.current = false;
+          lastLoadedUserIdRef.current = null;
+        }
       }
     });
 
@@ -1080,6 +1391,21 @@ const App: React.FC = () => {
     // Don't categorize here - let the useEffect batch all categorizations together
     // Just add results to history - the useEffect will handle categorization and saving
     setExamHistory(prev => [...prev, ...results]);
+    
+    // Generate exam-specific analysis (only for this exam, not general history)
+    setIsAnalyzingExam(true);
+    setExamAnalysis(null); // Clear old analysis to show only loading state
+    try {
+      const userName = currentUser?.name || currentUser?.email?.split('@')[0] || undefined;
+      const examSpecificAnalysis = await analyzeProgress(results, documentContent, userName);
+      setExamAnalysis(examSpecificAnalysis);
+      console.log('Exam-specific analysis generated:', examSpecificAnalysis);
+    } catch (error) {
+      console.error('Error generating exam-specific analysis:', error);
+      setExamAnalysis(null);
+    } finally {
+      setIsAnalyzingExam(false);
+    }
     
     // Save exam session stats (separate from analysis - this is just for tracking)
     if (currentUser && examQuestions) {
@@ -1231,6 +1557,7 @@ const App: React.FC = () => {
             emailConfirmed={currentUser?.email_confirmed ?? false}
             userEmail={currentUser?.email}
             userStats={userStats}
+            userName={currentUser?.name || currentUser?.email?.split('@')[0]}
         />;
       case 'quiz':
         if (!currentUser?.email_confirmed) {
@@ -1307,8 +1634,8 @@ const App: React.FC = () => {
             createTargetedFlashcards={handleCreateTargetedFlashcards}
             createTargetedQuiz={handleCreateTargetedQuiz}
             userName={currentUser?.name || currentUser?.email?.split('@')[0]}
-            analysis={analysis}
-            isAnalyzing={isAnalyzing}
+            analysis={examAnalysis}
+            isAnalyzing={isAnalyzingExam}
         />;
       case 'flashcards':
         if (!currentUser?.email_confirmed) {
@@ -1376,8 +1703,32 @@ const App: React.FC = () => {
     }
   };
 
-  if (!currentUser) {
+  // Show loading state while checking initial auth (prevents login screen flash after OAuth)
+  const location = useLocation();
+  
+  if (isCheckingAuth) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-100">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-sky-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-600">בודק התחברות...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If on login route, show login view
+  if (location.pathname === '/login') {
+    if (currentUser) {
+      // User is logged in, redirect to home
+      return <Navigate to="/" replace />;
+    }
     return <LoginView onLogin={handleLoginSuccess} />;
+  }
+
+  // If not logged in and not on login route, redirect to login
+  if (!currentUser) {
+    return <Navigate to="/login" replace />;
   }
 
   return (

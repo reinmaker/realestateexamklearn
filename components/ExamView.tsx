@@ -41,6 +41,36 @@ const ExamView: React.FC<ExamViewProps> = ({
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(120 * 60);
   
+  // Check if exam was already finished when component mounts
+  // If questions match and we have exam history, restore finished state
+  useEffect(() => {
+    if (questions && questions.length >= totalQuestions && examState === 'intro') {
+      // Check if there's a recent exam session that matches current questions
+      // This happens when user navigates back after exam finished
+      // We'll check localStorage for exam completion state
+      try {
+        const examFinishedKey = 'exam_finished_state';
+        const savedState = localStorage.getItem(examFinishedKey);
+        if (savedState) {
+          const parsed = JSON.parse(savedState);
+          // Check if saved state matches current questions (same count)
+          if (parsed.questionsCount === questions.length && parsed.finished) {
+            console.log('Restoring finished exam state from localStorage');
+            setExamState('finished');
+            setScore(parsed.score || 0);
+            setUserAnswers(parsed.userAnswers || []);
+            setTimeLeft(parsed.timeLeft || 0);
+            setIsExamInProgress(false);
+            // Don't restore to running state - keep it finished
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn('Could not restore exam state:', error);
+      }
+    }
+  }, [questions, examState, totalQuestions, setIsExamInProgress]);
+  
   const [isGeneratingTargeted, setIsGeneratingTargeted] = useState<'flashcards' | 'quiz' | null>(null);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -89,22 +119,65 @@ const ExamView: React.FC<ExamViewProps> = ({
     }
   }, []);
 
-  const handleStartExam = () => {
+  const handleStartExam = async () => {
     if (attemptsLeft > 0) {
+      // Clear any saved finished state when starting a new exam
+      try {
+        const examFinishedKey = 'exam_finished_state';
+        localStorage.removeItem(examFinishedKey);
+      } catch (error) {
+        console.warn('Could not clear exam finished state:', error);
+      }
+      
+      // Reset exam state first
+      setExamState('intro');
+      setCurrentQuestionIndex(0);
+      setUserAnswers([]);
+      setScore(0);
+      setTimeLeft(120 * 60);
+      
       // Always regenerate exam to get a fresh random mix from the full DB pool
-      regenerateExam();
-      setExamState('running');
-      setIsExamInProgress(true);
+      await regenerateExam();
+      
+      // Only set to running after questions are loaded (handled by useEffect)
+      // The exam will start automatically when questions.length >= totalQuestions
     }
   };
 
   useEffect(() => {
-    if (questions && questions.length >= totalQuestions && examState === 'running') {
-        // Only initialize exam when we have all questions loaded
-        setUserAnswers(new Array(questions.length).fill(null));
-        setCurrentQuestionIndex(0);
+    // If we have all questions and exam state is intro, check if exam was already finished
+    if (questions && questions.length >= totalQuestions && examState === 'intro' && !isLoading) {
+      // First check if exam was already finished (restored from localStorage)
+      try {
+        const examFinishedKey = 'exam_finished_state';
+        const savedState = localStorage.getItem(examFinishedKey);
+        if (savedState) {
+          const parsed = JSON.parse(savedState);
+          // Check if saved state matches current questions (same count)
+          if (parsed.questionsCount === questions.length && parsed.finished) {
+            // Restore finished state (in case first useEffect didn't run or didn't complete)
+            console.log('Exam was already finished, restoring finished state');
+            setExamState('finished');
+            setScore(parsed.score || 0);
+            setUserAnswers(parsed.userAnswers || []);
+            setTimeLeft(parsed.timeLeft || 0);
+            setIsExamInProgress(false);
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn('Could not check exam finished state:', error);
+      }
+      
+      // If not finished, start the exam
+      setExamState('running');
+      setIsExamInProgress(true);
+      setUserAnswers(new Array(questions.length).fill(null));
+      setCurrentQuestionIndex(0);
+      setScore(0);
+      setTimeLeft(120 * 60);
     }
-  }, [questions, examState, totalQuestions]);
+  }, [questions?.length, examState, totalQuestions, isLoading, setIsExamInProgress]); // Only depend on questions.length, not the full array
 
 
   useEffect(() => {
@@ -156,7 +229,22 @@ const ExamView: React.FC<ExamViewProps> = ({
     setScore(finalScore);
     setExamState('finished');
     setIsExamInProgress(false);
-  }, [questions, userAnswers, setIsExamInProgress, onExamFinished, attemptsLeft]);
+    
+    // Save finished state to localStorage so it persists across navigation
+    try {
+      const examFinishedKey = 'exam_finished_state';
+      localStorage.setItem(examFinishedKey, JSON.stringify({
+        finished: true,
+        score: finalScore,
+        userAnswers: userAnswers,
+        timeLeft: timeLeft,
+        questionsCount: questions.length,
+        timestamp: Date.now()
+      }));
+    } catch (error) {
+      console.warn('Could not save exam finished state:', error);
+    }
+  }, [questions, userAnswers, setIsExamInProgress, onExamFinished, attemptsLeft, timeLeft]);
 
   useEffect(() => {
     if (isExamActive) {
@@ -209,6 +297,25 @@ const ExamView: React.FC<ExamViewProps> = ({
   };
 
   const handleRestartExam = () => {
+    // Reload attempts from localStorage to get updated value
+    try {
+      const todayKey = getTodayKey();
+      const attempts = localStorage.getItem(todayKey);
+      if (attempts !== null) {
+        setAttemptsLeft(parseInt(attempts, 10));
+      }
+    } catch (error) {
+      console.warn('Could not reload attempts from localStorage:', error);
+    }
+    
+    // Clear any saved finished state when restarting
+    try {
+      const examFinishedKey = 'exam_finished_state';
+      localStorage.removeItem(examFinishedKey);
+    } catch (error) {
+      console.warn('Could not clear exam finished state:', error);
+    }
+    
     regenerateExam();
     setExamState('intro');
     setCurrentQuestionIndex(0);
@@ -347,22 +454,22 @@ const ExamView: React.FC<ExamViewProps> = ({
             <div className="max-w-4xl mx-auto">
                 <h2 className="text-3xl font-bold text-slate-800 text-center">המבחן הסתיים</h2>
                 
-                <div className="my-8 flex flex-col items-center justify-center bg-white p-6 rounded-lg border border-slate-200 shadow-sm text-center">
-                    <h3 className={`text-3xl font-bold ${passed ? 'text-green-600' : 'text-red-600'}`}>
+                <div className="my-8 flex flex-col items-center justify-center bg-white p-6 rounded-lg border border-slate-200 shadow-sm text-center animate-bounce-in">
+                    <h3 className={`text-3xl font-bold animate-fade-in ${passed ? 'text-green-600' : 'text-red-600'}`} style={{ animationDelay: '0.2s' }}>
                         {passed ? 'עברת את המבחן!' : 'נכשלת במבחן'}
                     </h3>
-                    {timeLeft === 0 && <p className="text-lg text-amber-600 mt-2">הזמן אזל.</p>}
+                    {timeLeft === 0 && <p className="text-lg text-amber-600 mt-2 animate-fade-in" style={{ animationDelay: '0.3s' }}>הזמן אזל.</p>}
                     <div className="flex items-center justify-center gap-6 sm:gap-12 my-6">
-                        <div className="text-center">
+                        <div className="text-center animate-scale-in" style={{ animationDelay: '0.4s' }}>
                             <p className="text-sm sm:text-base text-slate-500 font-medium">הציון שלך</p>
                             <p className="text-5xl sm:text-6xl font-bold text-sky-600">{score}</p>
                         </div>
-                        <div className="text-center">
+                        <div className="text-center animate-scale-in" style={{ animationDelay: '0.5s' }}>
                             <p className="text-sm sm:text-base text-slate-500 font-medium">ציון מעבר</p>
                             <p className="text-5xl sm:text-6xl font-bold text-slate-400">15</p>
                         </div>
                     </div>
-                    <p className="text-lg text-slate-600">
+                    <p className="text-lg text-slate-600 animate-fade-in" style={{ animationDelay: '0.6s' }}>
                         מתוך סך הכל {questions.length} שאלות
                     </p>
                 </div>
@@ -371,13 +478,12 @@ const ExamView: React.FC<ExamViewProps> = ({
                     <h3 className="text-2xl font-bold mb-4 flex items-center text-slate-900">
                         <SparklesIcon className="h-6 w-6 text-sky-500 ml-2" /> ניתוח AI
                     </h3>
-                    {isAnalyzing && (
+                    {isAnalyzing ? (
                         <div className="bg-white border border-slate-200 p-6 rounded-lg text-center">
                             <div className="w-8 h-8 border-4 border-dashed rounded-full animate-spin border-sky-500 mx-auto"></div>
                             <p className="mt-4 text-slate-500">מנתח את תוצאות המבחן...</p>
                         </div>
-                    )}
-                    {analysis && (
+                    ) : analysis ? (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
                             <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
                                 <h4 className="text-lg font-semibold text-green-600 mb-3">נושאים חזקים</h4>
@@ -391,30 +497,56 @@ const ExamView: React.FC<ExamViewProps> = ({
                                     {analysis.weaknesses.map((item, index) => <li key={index}>{item}</li>)}
                                 </ul>
                             </div>
+                            {analysis.weaknesses && analysis.weaknesses.length > 0 && (
+                                <div className="lg:col-span-2 mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3">
+                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-sm">
+                                        {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-slate-600 border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2 text-slate-700" /> צור כרטיסיות ממוקדות</>}
+                                    </button>
+                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-sm">
+                                        {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-slate-600 border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2 text-slate-700" /> צור בוחן חיזוק</>}
+                                    </button>
+                                </div>
+                            )}
+                            {analysis.recommendations && (
+                                <div className="lg:col-span-2 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                    <h4 className="text-lg font-semibold text-sky-600 mb-3">המלצות להמשך</h4>
+                                    <p className="text-slate-600 whitespace-pre-wrap">{analysis.recommendations}</p>
+                                </div>
+                            )}
                         </div>
-                    )}
+                    ) : null}
                 </div>
 
                 <div className="mt-8 pt-6 border-t border-slate-300 flex flex-col items-center gap-4">
-                    {!passed && analysis && (
-                        <div className="w-full max-w-2xl text-center p-6 bg-amber-50 border border-amber-200 rounded-lg">
-                            <h4 className="text-lg font-semibold text-amber-800 mb-3">בוא נחזק את הנקודות החלשות</h4>
-                            <p className="text-amber-700 mb-4">ה-AI זיהה את הנושאים שבהם אתה מתקשה. בחר אחת מהאפשרויות הבאות כדי להתמקד ולשפר את הביצועים שלך.</p>
-                            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                                <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-4 py-2 bg-amber-100 text-amber-800 text-sm font-semibold rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-wait">
-                                    {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2" /> צור כרטיסיות ממוקדות</>}
-                                </button>
-                                <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-4 py-2 bg-amber-100 text-amber-800 text-sm font-semibold rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-wait">
-                                    {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2" /> צור בוחן חיזוק</>}
-                                </button>
-                            </div>
+                    {/* Show practice options if failed and no attempts left */}
+                    {!passed && attemptsLeft === 0 && (
+                        <div className="w-full max-w-2xl text-center p-6 bg-red-50 border border-red-200 rounded-lg mb-4">
+                            <h4 className="text-lg font-semibold text-red-800 mb-3">מיצית את כל נסיונות הכשלון להיום</h4>
+                            <p className="text-red-700 mb-4">
+                                ניסית להיבחן פעמיים היום ונכשלת בשתיהן. לפי כללי המבחן, ניתן להיכשל עד 2 פעמים ביום.
+                                כדי לשפר את הביצועים שלך ולהתכונן למבחן הבא, מומלץ לך לתרגל את הנושאים שבהם אתה מתקשה.
+                            </p>
+                            <p className="text-red-700 font-semibold mb-4">
+                                תוכל לנסות שוב מחר או להתמקד בתרגול עם האפשרויות הבאות:
+                            </p>
                         </div>
                     )}
-                    {passed && (
-                        <button onClick={handleRestartExam} className="px-8 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors text-lg">
-                            עשה מבחן נוסף
+                    
+                    {/* Show practice options if failed but still have attempts */}
+                    {!passed && attemptsLeft > 0 && (
+                        <div className="w-full max-w-2xl text-center p-6 bg-amber-50 border border-amber-200 rounded-lg mb-4">
+                            <h4 className="text-lg font-semibold text-amber-800 mb-3">בוא נחזק את הנקודות החלשות</h4>
+                            <p className="text-amber-700 mb-4">ה-AI זיהה את הנושאים שבהם אתה מתקשה. בחר אחת מהאפשרויות הבאות כדי להתמקד ולשפר את הביצועים שלך.</p>
+                        </div>
+                    )}
+                    
+                    {/* Show "Start Another Exam" button if user passed OR if they have attempts left */}
+                    {(passed || attemptsLeft > 0) && (
+                        <button onClick={handleRestartExam} className="px-8 py-3 bg-sky-600 text-white font-bold rounded-lg hover:bg-sky-700 transition-colors text-lg">
+                            {passed ? 'עשה מבחן נוסף' : `נסה שוב (נותרו ${attemptsLeft} נסיונות)`}
                         </button>
                     )}
+                    
                     <button onClick={() => setView('home')} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg transition-colors">
                         חזור לדף הבית
                     </button>
@@ -480,11 +612,11 @@ const ExamView: React.FC<ExamViewProps> = ({
                                             <button
                                                 onClick={() => handlePlayAudio(q.explanation, 'explanation')}
                                                 disabled={!!isAudioLoading}
-                                                className="p-2 rounded-full bg-sky-100 text-sky-800 hover:bg-sky-200 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
+                                                className="p-2 rounded-full bg-slate-700 border-2 border-slate-600 text-white hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
                                                 aria-label="הקרא הסבר"
                                             >
                                                 {isAudioLoading === 'explanation' ? (
-                                                    <div className="w-5 h-5 border-2 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
+                                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                                                 ) : (
                                                     <SpeakerIcon className="h-5 w-5" />
                                                 )}
@@ -496,6 +628,7 @@ const ExamView: React.FC<ExamViewProps> = ({
                         })}
                     </div>
                 </div>
+
             </div>
         </div>
     );
@@ -526,23 +659,25 @@ const ExamView: React.FC<ExamViewProps> = ({
                 </div>
             </div>
         </div>
-        <div className="w-full bg-slate-200 rounded-full h-2.5 mb-4">
+        <div className="w-full bg-slate-200 rounded-full h-2.5 mb-4 overflow-hidden rounded-full">
             <div
-                className="bg-sky-500 h-2.5 rounded-full transition-all duration-300 ease-out"
+                className="bg-sky-500 h-2.5 rounded-full transition-all duration-500 ease-out relative"
                 style={{ width: `${progressInExam}%` }}
-            ></div>
+            >
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
+            </div>
         </div>
-        <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+        <div key={currentQuestionIndex} className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm animate-slide-in-right">
           <div className="flex items-center justify-between gap-4 mb-6">
             <p className="text-lg font-semibold text-slate-900 flex-1">{currentQuestion.question}</p>
             <button
                 onClick={() => handlePlayAudio(currentQuestion.question, 'question')}
                 disabled={!!isAudioLoading}
-                className="p-2 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
+                className="p-2 rounded-full bg-slate-700 border-2 border-slate-600 text-white hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
                 aria-label="הקרא שאלה"
             >
                 {isAudioLoading === 'question' ? (
-                    <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 ) : (
                     <SpeakerIcon className="h-5 w-5" />
                 )}
@@ -553,7 +688,8 @@ const ExamView: React.FC<ExamViewProps> = ({
               <button
                 key={index}
                 onClick={() => handleAnswerSelect(index)}
-                className={`p-4 rounded-lg border transition-all duration-300 flex items-baseline gap-3 text-right ${getButtonClass(index)}`}
+                className={`p-4 rounded-lg border transition-all duration-300 flex items-baseline gap-3 text-right ${getButtonClass(index)} hover:scale-[1.02] active:scale-[0.98] animate-scale-in`}
+                style={{ animationDelay: `${index * 0.05}s` }}
               >
                 <span className="font-bold">{hebrewLetters[index]}.</span>
                 <span className="flex-1">{option}</span>

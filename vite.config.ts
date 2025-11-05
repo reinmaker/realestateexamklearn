@@ -10,11 +10,12 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
       },
       plugins: [react()],
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.OPENAI_API_KEY': JSON.stringify(env.OPENAI_API_KEY)
-      },
+          define: {
+            'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+            'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+            'process.env.OPENAI_API_KEY': JSON.stringify(env.OPENAI_API_KEY),
+            'process.env.GOOGLE_CLOUD_TTS_API_KEY': JSON.stringify(env.GOOGLE_CLOUD_TTS_API_KEY)
+          },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),

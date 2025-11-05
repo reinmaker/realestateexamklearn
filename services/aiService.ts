@@ -560,16 +560,16 @@ export async function generateFlashcards(documentContent: string, count: number)
 // Create OpenAI chat session (primary)
 function createChatSessionOpenAI(documentContent: string, userName?: string): any {
   const name = userName || 'חבר';
-  const systemInstruction = `אתה דניאל, מורה פרטי ידידותי וסבלני למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על המסמך שסופק. דבר עם ${name} בגובה העיניים ובאופן ישיר וחם. השתמש בשם ${name} כשאתה פונה אליו/ה. תשובותיך חייבות להיות קצרות מאוד ותמציתיות. הימנע מהסברים ארוכים. חשוב ביותר: אל תשתמש בשום פנים ואופן בעיצוב טקסט כמו הדגשה (ללא **). 
+  const systemInstruction = `אתה דניאל, מורה פרטי ידידותי וסבלני למבחן התיווך הישראלי. אתה מדבר בצורה טבעית ושיחה, כמו דיבור עם חבר. הידע שלך מבוסס באופן בלעדי על המסמך שסופק. דבר בגובה העיניים ובאופן ישיר וחם. אל תשתמש בשם המשתמש בכל תשובה - השתמש בו רק לעיתים רחוקות, כשרלוונטי. תשובותיך חייבות להיות קצרות מאוד ותמציתיות. הימנע מהסברים ארוכים. חשוב ביותר: אל תשתמש בשום פנים ואופן בעיצוב טקסט כמו הדגשה (ללא **). 
 
 חשוב מאוד - הגבלות נוקשות:
 - ענה רק על שאלות הקשורות ישירות לחוקי מקרקעין בישראל, למבחן הרישוי למתווכי מקרקעין, ולשאלות הבחינה.
 - הנושאים המורשים בלבד: דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי מתווכים, חוק המקרקעין, חוק המתווכים, שאלות מהבחינות, והחומר הנלמד במבחן הרישוי.
-- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות, או כל נושא אחר), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל. יש לך שאלה על חומר הלימוד?"
+- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות, או כל נושא אחר), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."
 - אין לענות על שאלות שאינן קשורות למבחן התיווך ולחוקי המקרקעין, גם אם הן נראות מעניינות.
 - אם התשובה לא נמצאת במסמך, ציין זאת בבירור ונסה להשיב על בסיס הידע הכללי מהמסמך.
 
-ענה על שאלותיו של ${name}, הבהר מושגים ועזור לו/ה להבין את החומר הנלמד מהבחינות. השב תמיד בעברית. המסמך לעיונך:
+ענה על שאלות, הבהר מושגים ועזור להבין את החומר הנלמד מהבחינות. דבר בצורה טבעית ושיחה. אל תשאל בכל תשובה "רוצה שאסביר עוד?" או "יש לך שאלות נוספות?" - פשוט תן את המידע בצורה טבעית. אם יש צורך להרחיב, פשוט הרחב. השב תמיד בעברית. המסמך לעיונך:
 
 ---
 ${documentContent}
@@ -587,16 +587,16 @@ ${documentContent}
 async function createChatSessionGemini(documentContent: string, userName?: string): Promise<Chat> {
   const ai = await getGemini();
   const name = userName || 'חבר';
-  const systemInstruction = `אתה דניאל, מורה פרטי ידידותי וסבלני למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על המסמך שסופק. דבר עם ${name} בגובה העיניים ובאופן ישיר וחם. השתמש בשם ${name} כשאתה פונה אליו/ה. תשובותיך חייבות להיות קצרות מאוד ותמציתיות. הימנע מהסברים ארוכים. חשוב ביותר: אל תשתמש בשום פנים ואופן בעיצוב טקסט כמו הדגשה (ללא **). 
+  const systemInstruction = `אתה דניאל, מורה פרטי ידידותי וסבלני למבחן התיווך הישראלי. אתה מדבר בצורה טבעית ושיחה, כמו דיבור עם חבר. הידע שלך מבוסס באופן בלעדי על המסמך שסופק. דבר בגובה העיניים ובאופן ישיר וחם. אל תשתמש בשם המשתמש בכל תשובה - השתמש בו רק לעיתים רחוקות, כשרלוונטי. תשובותיך חייבות להיות קצרות מאוד ותמציתיות. הימנע מהסברים ארוכים. חשוב ביותר: אל תשתמש בשום פנים ואופן בעיצוב טקסט כמו הדגשה (ללא **). 
 
 חשוב מאוד - הגבלות נוקשות:
 - ענה רק על שאלות הקשורות ישירות לחוקי מקרקעין בישראל, למבחן הרישוי למתווכי מקרקעין, ולשאלות הבחינה.
 - הנושאים המורשים בלבד: דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי מתווכים, חוק המקרקעין, חוק המתווכים, שאלות מהבחינות, והחומר הנלמד במבחן הרישוי.
-- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות, או כל נושא אחר), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל. יש לך שאלה על חומר הלימוד?"
+- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות, או כל נושא אחר), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."
 - אין לענות על שאלות שאינן קשורות למבחן התיווך ולחוקי המקרקעין, גם אם הן נראות מעניינות.
 - אם התשובה לא נמצאת במסמך, ציין זאת בבירור ונסה להשיב על בסיס הידע הכללי מהמסמך.
 
-ענה על שאלותיו של ${name}, הבהר מושגים ועזור לו/ה להבין את החומר הנלמד מהבחינות. השב תמיד בעברית. המסמך לעיונך:
+ענה על שאלות, הבהר מושגים ועזור להבין את החומר הנלמד מהבחינות. דבר בצורה טבעית ושיחה. אל תשאל בכל תשובה "רוצה שאסביר עוד?" או "יש לך שאלות נוספות?" - פשוט תן את המידע בצורה טבעית. אם יש צורך להרחיב, פשוט הרחב. השב תמיד בעברית. המסמך לעיונך:
 
 ---
 ${documentContent}
@@ -624,17 +624,18 @@ export async function createChatSession(documentContent: string, userName?: stri
 // Create OpenAI explanation chat session (primary)
 async function createExplanationChatSessionOpenAI(documentContent: string, context: string, userName?: string): Promise<any> {
   const name = userName || 'חבר';
-  const systemInstruction = `אתה דניאל, מורה פרטי מומחה למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על חומר הלימוד שסופק. ${name} ביקש הסבר נוסף על הנושא הבא:
+  const systemInstruction = `אתה דניאל, מורה פרטי מומחה למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על חומר הלימוד שסופק. ${name} ביקש הסבר נוסף על שאלה מהמבחן:
+
 ---
 ${context}
 ---
 
-חשוב מאוד - הגבלות:
-- הסבר רק נושאים הקשורים ישירות לחוקי מקרקעין בישראל ולמבחן הרישוי למתווכי מקרקעין (דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי, חוק המקרקעין, חוק המתווכים, וכל נושא מהחומר הנלמד במבחן).
-- אם ${name} שואל שאלה על הנושא שהוצג לעיל (שאלה מהמבחן, הסבר על חומר הלימוד, או כל נושא הקשור לחוקי מקרקעין), ענה עליה בהרחבה.
-- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם נושאים הקשורים לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."
+**חשוב מאוד - זהו הסבר על שאלה מהמבחן הרישוי למתווכי מקרקעין:**
+- כל השאלות של ${name} יהיו קשורות לשאלה זו, לנושא שנלמד, או לחוקי מקרקעין בישראל ולמבחן הרישוי.
+- ענה על כל שאלה של ${name} בהרחבה - הן על השאלה הספציפית, על הנושאים הקשורים, על חוקי מקרקעין, ועל כל נושא הקשור למבחן הרישוי למתווכי מקרקעין.
+- רק אם ${name} שואל שאלה שאינה קשורה כלל לחוקי מקרקעין או למבחן (למשל: מתמטיקה כללית, היסטוריה, פוליטיקה, חדשות), ענה: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."
 
-הסבר את הנושא ל${name} בצורה ברורה ותמציתית ביותר. השתמש בשפה פשוטה ודוגמאות קצרות. הימנע מפרטים מיותרים. השתמש בשם ${name} כשאתה פונה אליו/ה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד הדגשה (ללא **). התשובה צריכה להיות קצרה וישירה. השב תמיד בעברית.
+הסבר את הנושא בצורה ברורה ותמציתית ביותר. השתמש בשפה פשוטה ושיחה, כמו דיבור עם חבר. אל תשתמש בשם המשתמש בכל תשובה - השתמש בו רק לעיתים רחוקות, כשרלוונטי. אל תשאל בכל תשובה "רוצה שאסביר עוד?" או "יש לך שאלות נוספות?" - פשוט תן את המידע בצורה טבעית. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד הדגשה (ללא **). התשובה צריכה להיות קצרה וישירה. השב תמיד בעברית.
 
 חומר לימוד:
 ---
@@ -654,17 +655,18 @@ ${documentContent}
 async function createExplanationChatSessionGemini(documentContent: string, context: string, userName?: string): Promise<Chat> {
   const ai = await getGemini();
   const name = userName || 'חבר';
-  const systemInstruction = `אתה דניאל, מורה פרטי מומחה למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על חומר הלימוד שסופק. ${name} ביקש הסבר נוסף על הנושא הבא:
+  const systemInstruction = `אתה דניאל, מורה פרטי מומחה למבחן התיווך הישראלי. אתה מדבר עם ${name}. הידע שלך מבוסס באופן בלעדי על חומר הלימוד שסופק. ${name} ביקש הסבר נוסף על שאלה מהמבחן:
+
 ---
 ${context}
 ---
 
-חשוב מאוד - הגבלות:
-- הסבר רק נושאים הקשורים ישירות לחוקי מקרקעין בישראל ולמבחן הרישוי למתווכי מקרקעין (דמי תיווך, הערת אזהרה, בלעדיות, זכויות וחובות מתווכים, הסכמים, רישוי, חוק המקרקעין, חוק המתווכים, וכל נושא מהחומר הנלמד במבחן).
-- אם ${name} שואל שאלה על הנושא שהוצג לעיל (שאלה מהמבחן, הסבר על חומר הלימוד, או כל נושא הקשור לחוקי מקרקעין), ענה עליה בהרחבה.
-- אם ${name} שואל שאלה שאינה קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם נושאים הקשורים לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."
+**חשוב מאוד - זהו הסבר על שאלה מהמבחן הרישוי למתווכי מקרקעין:**
+- כל השאלות של ${name} יהיו קשורות לשאלה זו, לנושא שנלמד, או לחוקי מקרקעין בישראל ולמבחן הרישוי.
+- ענה על כל שאלה של ${name} בהרחבה - הן על השאלה הספציפית, על הנושאים הקשורים, על חוקי מקרקעין, ועל כל נושא הקשור למבחן הרישוי למתווכי מקרקעין.
+- רק אם ${name} שואל שאלה שאינה קשורה כלל לחוקי מקרקעין או למבחן (למשל: מתמטיקה כללית, היסטוריה, פוליטיקה, חדשות), ענה: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."
 
-הסבר את הנושא ל${name} בצורה ברורה ותמציתית ביותר. השתמש בשפה פשוטה ודוגמאות קצרות. הימנע מפרטים מיותרים. השתמש בשם ${name} כשאתה פונה אליו/ה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד הדגשה (ללא **). התשובה צריכה להיות קצרה וישירה. השב תמיד בעברית.
+הסבר את הנושא בצורה ברורה ותמציתית ביותר. השתמש בשפה פשוטה ושיחה, כמו דיבור עם חבר. אל תשתמש בשם המשתמש בכל תשובה - השתמש בו רק לעיתים רחוקות, כשרלוונטי. אל תשאל בכל תשובה "רוצה שאסביר עוד?" או "יש לך שאלות נוספות?" - פשוט תן את המידע בצורה טבעית. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד הדגשה (ללא **). התשובה צריכה להיות קצרה וישירה. השב תמיד בעברית.
 
 חומר לימוד:
 ---
@@ -849,10 +851,10 @@ async function continueChatOpenAI(chat: any, message: string, history: ChatMessa
   const enhancedSystemInstruction = isExplanationChat 
     ? `${chat.systemInstruction}
 
-תזכורת חשובה: המשתמש שואל על שאלה מהמבחן שהוצגה לעיל. ענה על שאלותיו בהרחבה - הן על השאלה הספציפית, על הנושאים הקשורים, על חוקי מקרקעין, ועל כל נושא הקשור למבחן הרישוי למתווכי מקרקעין. רק אם השאלה לא קשורה כלל לחוקי מקרקעין או למבחן (למשל: מתמטיקה כללית, היסטוריה, פוליטיקה, חדשות), ענה: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל. יש לך שאלה על חומר הלימוד?"`
+תזכורת חשובה: זהו הסבר על שאלה מהמבחן הרישוי למתווכי מקרקעין. כל השאלות של המשתמש יהיו קשורות לשאלה זו, לנושא שנלמד, או לחוקי מקרקעין. ענה על כל שאלה בהרחבה - הן על השאלה הספציפית, על הנושאים הקשורים, על חוקי מקרקעין, ועל כל נושא הקשור למבחן הרישוי למתווכי מקרקעין. אל תשאל "רוצה שאסביר עוד?" - פשוט תן את המידע בצורה טבעית. רק אם השאלה לא קשורה כלל לחוקי מקרקעין או למבחן (למשל: מתמטיקה כללית, היסטוריה, פוליטיקה, חדשות), ענה: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."`
     : `${chat.systemInstruction}
 
-תזכורת חשובה: אם ההודעה של המשתמש קשורה לחוקי מקרקעין, למבחן הרישוי למתווכי מקרקעין, לשאלות מהבחינה, או לחומר הלימוד, ענה עליה בהרחבה. אם ההודעה לא קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל. יש לך שאלה על חומר הלימוד?"`;
+תזכורת חשובה: אם ההודעה של המשתמש קשורה לחוקי מקרקעין, למבחן הרישוי למתווכי מקרקעין, לשאלות מהבחינה, או לחומר הלימוד, ענה עליה בהרחבה. אל תשאל "רוצה שאסביר עוד?" - פשוט תן את המידע בצורה טבעית. אם ההודעה לא קשורה ישירות לחוקי מקרקעין או למבחן (למשל: שאלות כלליות, מתמטיקה, היסטוריה, פוליטיקה, חדשות), ענה בדיוק כך: "סליחה, אני יכול לעזור לך רק עם שאלות הקשורות לחוקי מקרקעין ולמבחן הרישוי למתווכי מקרקעין בישראל."`;
   
   // Convert history to OpenAI format
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -940,7 +942,7 @@ async function generateHintOpenAI(question: string, answer: string, documentCont
 ${documentContent}
 ---
 
-ספק רמז קצר ומעודן שיעזור ל${name} להבין את התשובה הנכונה, מבלי לחשוף אותה ישירות. השתמש בשם ${name} כשאתה פונה אליו/ה. הרמז צריך להיות קצר מאוד (משפט אחד או שניים). השב בעברית.`;
+ספק רמז קצר ומעודן שיעזור להבין את התשובה הנכונה, מבלי לחשוף אותה ישירות. דבר בצורה טבעית ושיחה. אל תשתמש בשם המשתמש. הרמז צריך להיות קצר מאוד (משפט אחד או שניים). השב בעברית.`;
 
   const response = await openai.chat.completions.create({
     model: openAIModel,
@@ -977,7 +979,7 @@ async function generateHintGemini(question: string, answer: string, documentCont
 ${documentContent}
 ---
 
-ספק רמז קצר ומעודן שיעזור ל${name} להבין את התשובה הנכונה, מבלי לחשוף אותה ישירות. השתמש בשם ${name} כשאתה פונה אליו/ה. הרמז צריך להיות קצר מאוד (משפט אחד או שניים). השב בעברית.`;
+ספק רמז קצר ומעודן שיעזור להבין את התשובה הנכונה, מבלי לחשוף אותה ישירות. דבר בצורה טבעית ושיחה. אל תשתמש בשם המשתמש. הרמז צריך להיות קצר מאוד (משפט אחד או שניים). השב בעברית.`;
 
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: geminiModel,
@@ -995,64 +997,306 @@ export async function generateHint(question: string, answer: string, documentCon
   );
 }
 
-export async function generateSpeech(textToSpeak: string): Promise<string> {
-  // Use OpenAI TTS (text-to-speech) API
+/**
+ * Generate teacher reaction message based on quiz performance
+ * Small encouraging message from the teacher
+ */
+export async function generateTeacherReaction(
+  isCorrect: boolean,
+  currentScore: number,
+  totalQuestions: number,
+  recentStreak: number,
+  userName?: string,
+  question?: string,
+  selectedAnswer?: string,
+  correctAnswer?: string,
+  explanation?: string
+): Promise<string> {
+  const name = userName || 'אתה';
+  const percentage = totalQuestions > 0 ? Math.round((currentScore / totalQuestions) * 100) : 0;
+  const isDoingWell = percentage >= 70;
+  
+  // Use OpenAI for quick, short reactions
   try {
     const openai = await getOpenAI();
+    const questionContext = question ? `\n\nשאלה: ${question}` : '';
+    const answerContext = selectedAnswer && correctAnswer ? `\nתשובה שניתנה: ${selectedAnswer}\nתשובה נכונה: ${correctAnswer}` : '';
+    const explanationContext = explanation ? `\nהסבר: ${explanation}` : '';
     
-    console.log('Generating speech with OpenAI TTS for text:', textToSpeak.substring(0, 50));
-    
-    // Use OpenAI TTS API
-    const response = await openai.audio.speech.create({
-      model: "tts-1", // Use tts-1 for faster, cheaper TTS
-      voice: "alloy", // Options: alloy, echo, fable, onyx, nova, shimmer
-      input: textToSpeak,
-      response_format: "mp3", // Return as MP3
+    const prompt = `אתה דניאל, מורה פרטי ידידותי וסבלני למבחן התיווך הישראלי. אתה מדבר בצורה טבעית ושיחה.
+
+נתונים:
+- ${isCorrect ? 'ענה נכון' : 'ענה לא נכון'} על השאלה האחרונה
+- ציון נוכחי: ${currentScore}/${totalQuestions} (${percentage}%)
+- ${recentStreak > 0 ? `רצף של ${recentStreak} תשובות נכונות` : recentStreak < 0 ? `רצף של ${Math.abs(recentStreak)} תשובות שגויות` : 'אין רצף'}
+${questionContext}${answerContext}${explanationContext}
+
+חשוב מאוד:
+- דבר בצורה טבעית ושיחה, כמו דיבור עם חבר
+- אל תשתמש בשם המשתמש - דבר בגוף שני בצורה טבעית
+- אל תשתמש בביטויים גנריים כמו "אל תתייאש", "לא נורא", "כל שגיאה היא הזדמנות", "תמשיך כך"
+- התייחס ספציפית לשאלה, לתשובה, ולנושא המשפטי שנלמד
+- אם התשובה נכונה - התייחס לנושא הספציפי ולמה שזה מראה על ההבנה
+- אם התשובה שגויה - הסבר מה היה נכון ומה הקשר לנושא הנלמד
+- הודע קצרה מאוד (מקסימום 2 משפטים, עד 40 מילים)
+
+${isCorrect ? 
+  'התלמיד ענה נכון - התייחס לנושא הספציפי של השאלה ומה זה מראה על ההבנה שלו בנושא זה.' :
+  'התלמיד ענה לא נכון - הסבר מה היה נכון בנושא הספציפי הזה ומה הקשר לחומר הלימוד. אל תשתמש בביטויים גנריים.'}
+
+דוגמה למה לא לעשות: "אל תתייאש, כל שגיאה היא הזדמנות ללמוד" או "רוצה שאסביר עוד?"
+דוגמה למה לעשות: "בנושא דמי תיווך, זכור שדרוש רישיון בתוקף. התנאים הם: רישיון בתוקף, הסכם בכתב, ופירוט התשלום."
+`;
+
+    const response = await openai.chat.completions.create({
+      model: openAIModel,
+      messages: [
+        { 
+          role: 'system', 
+          content: 'אתה מורה פרטי ידידותי. אתה תמיד מחזיר הודעות קצרות מאוד (מקסימום 40 מילים), מעודדות וחמות. דבר בצורה טבעית ושיחה, כמו דיבור עם חבר. כתוב בגוף שני, אבל אל תשתמש בשם המשתמש. אל תשאל "רוצה שאסביר עוד?" או "יש לך שאלות נוספות?" - פשוט תן את המידע בצורה טבעית. אל תשתמש בביטויים גנריים כמו "אל תתייאש" או "לא נורא" - התייחס תמיד לנושא הספציפי של השאלה ולחומר הלימוד.' 
+        },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.8,
+      max_tokens: 80, // Short messages only
     });
 
-    // Convert the response to base64 (browser-compatible)
-    const arrayBuffer = await response.arrayBuffer();
-    // Convert ArrayBuffer to base64 in browser-compatible way
-    const bytes = new Uint8Array(arrayBuffer);
-    let binaryString = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binaryString += String.fromCharCode(bytes[i]);
+    const content = response.choices[0]?.message?.content?.trim();
+    if (!content) {
+      throw new Error('No response from OpenAI');
     }
-    const base64Audio = btoa(binaryString);
+    return content;
+  } catch (error) {
+    // Fallback to simple predefined messages (avoid generic phrases, no name)
+    if (isCorrect) {
+      if (isDoingWell) {
+        return 'מעולה! הבנת את הנושא הזה היטב.';
+      } else {
+        return 'תשובה נכונה! נראה שאתה מתקדם בנושא הזה.';
+      }
+    } else {
+      // For incorrect answers, provide topic-specific feedback (no questions)
+      const topicHint = question ? 'הנושא הזה חשוב - כדאי לחזור עליו.' : 'כדאי לחזור על הנושא הזה.';
+      return topicHint;
+    }
+  }
+}
+
+export async function generateSpeech(textToSpeak: string): Promise<string> {
+  // For Hebrew text, try Google Cloud TTS first (neural voices sound human-like)
+  // Then fallback to browser TTS, then OpenAI
+  // Check if text contains Hebrew characters
+  const hasHebrew = /[\u0590-\u05FF]/.test(textToSpeak);
+  
+  if (hasHebrew) {
+    // Try Google Cloud Text-to-Speech first (best quality, human-like neural voices)
+    try {
+      const { getGoogleCloudTTSKey } = await import('./apiKeysService');
+      const apiKey = await getGoogleCloudTTSKey();
+      
+      if (apiKey) {
+        // Use Google Cloud TTS REST API for natural Hebrew voices
+        const response = await fetch(
+          `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              input: { text: textToSpeak },
+              voice: {
+                languageCode: 'he-IL',
+                name: 'he-IL-Wavenet-D', // Neural voice - sounds very natural (female)
+                ssmlGender: 'FEMALE'
+              },
+              audioConfig: {
+                audioEncoding: 'MP3',
+                speakingRate: 1.0,
+                pitch: 0,
+                volumeGainDb: 0.0
+              }
+            })
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Google Cloud TTS API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (data.audioContent) {
+          // Return base64 audio directly
+          return data.audioContent;
+        } else {
+          throw new Error('No audio content in response');
+        }
+      }
+    } catch (googleError) {
+      console.log('Google Cloud TTS not available, trying OpenAI TTS:', googleError);
+    }
     
-    console.log('OpenAI TTS successful, audio length:', base64Audio.length);
-    return base64Audio;
-  } catch (openAIError: any) {
-    console.error("OpenAI TTS failed, trying browser Web Speech API:", openAIError);
+    // Try OpenAI TTS with HD model for Hebrew (more natural, even if pronunciation isn't perfect)
+    try {
+      const openai = await getOpenAI();
+      const response = await openai.audio.speech.create({
+        model: "tts-1-hd", // HD model for more natural, higher quality speech
+        voice: "nova", // Female voice, clear and natural (alternative: "shimmer" for warm tone)
+        input: textToSpeak,
+        response_format: "mp3",
+      });
+      const arrayBuffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binaryString = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binaryString += String.fromCharCode(bytes[i]);
+      }
+      console.log('Using OpenAI TTS HD model (nova voice) for Hebrew text');
+      return btoa(binaryString);
+    } catch (openAIError) {
+      console.log('OpenAI TTS not available, falling back to browser TTS:', openAIError);
+    }
     
-    // Fallback to browser Web Speech API
+    // Fallback to browser Web Speech API for Hebrew with better voice selection
     try {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        // Use browser's built-in speech synthesis
+        // Get available voices and find the best Hebrew voice
         return new Promise((resolve, reject) => {
-          const utterance = new SpeechSynthesisUtterance(textToSpeak);
-          utterance.lang = 'he-IL'; // Hebrew
-          utterance.rate = 0.9;
-          utterance.pitch = 1;
-          
-          // For browser TTS, we return a special marker that will be handled differently
-          // The component should use the browser API directly instead of base64
-          utterance.onend = () => {
-            console.log('Browser TTS completed successfully');
-            resolve('browser-tts-success');
+          // Wait for voices to be loaded (they load asynchronously)
+          const loadVoices = () => {
+            const voices = window.speechSynthesis.getVoices();
+            
+            // Try to find the best Hebrew voice available
+            // Prefer neural/premium voices if available (they sound more natural)
+            let hebrewVoice = voices.find(voice => 
+              voice.lang.startsWith('he') && 
+              (voice.name.toLowerCase().includes('neural') ||
+               voice.name.toLowerCase().includes('premium') ||
+               voice.name.toLowerCase().includes('enhanced') ||
+               voice.name.toLowerCase().includes('female') || 
+               voice.name.toLowerCase().includes('woman') ||
+               voice.name.toLowerCase().includes('זמרת') ||
+               voice.name.toLowerCase().includes('אישה'))
+            );
+            
+            // If no premium Hebrew voice, try any Hebrew voice
+            if (!hebrewVoice) {
+              hebrewVoice = voices.find(voice => voice.lang.startsWith('he'));
+            }
+            
+            // If still no Hebrew voice, try Israeli voices
+            if (!hebrewVoice) {
+              hebrewVoice = voices.find(voice => 
+                voice.lang.includes('IL') || 
+                voice.lang.includes('Israel') ||
+                voice.lang.includes('he')
+              );
+            }
+            
+            // Log all available Hebrew voices for debugging
+            const allHebrewVoices = voices.filter(voice => 
+              voice.lang.startsWith('he') || voice.lang.includes('IL')
+            );
+            if (allHebrewVoices.length > 0) {
+              console.log('Available Hebrew voices:', allHebrewVoices.map(v => `${v.name} (${v.lang})`));
+            }
+            
+            // Create utterance
+            const utterance = new SpeechSynthesisUtterance(textToSpeak);
+            utterance.lang = 'he-IL'; // Hebrew (Israel)
+            
+            // Use better voice if found
+            if (hebrewVoice) {
+              utterance.voice = hebrewVoice;
+              console.log('Using Hebrew voice:', hebrewVoice.name, hebrewVoice.lang);
+            } else {
+              console.log('No specific Hebrew voice found, using default');
+            }
+            
+            // Optimize settings for more natural speech
+            // Try different rates and pitches to find what sounds best
+            // Higher pitch (1.1-1.2) often sounds more natural, but can vary by voice
+            utterance.rate = 0.95; // Slightly faster to reduce mechanical feel
+            utterance.pitch = 1.15; // Higher pitch for more natural, less robotic sound
+            utterance.volume = 1.0;
+            
+            // For browser TTS, we return a special marker that will be handled differently
+            utterance.onend = () => {
+              console.log('Browser TTS (Hebrew) completed successfully');
+              resolve('browser-tts-success');
+            };
+            utterance.onerror = (error) => {
+              console.error('Browser TTS error:', error);
+              reject(new Error('Browser TTS failed'));
+            };
+            
+            window.speechSynthesis.speak(utterance);
           };
-          utterance.onerror = (error) => {
-            console.error('Browser TTS error:', error);
-            reject(new Error('Browser TTS failed'));
-          };
           
-          window.speechSynthesis.speak(utterance);
+          // Load voices if they're already available
+          if (window.speechSynthesis.getVoices().length > 0) {
+            loadVoices();
+          } else {
+            // Wait for voices to load
+            window.speechSynthesis.onvoiceschanged = () => {
+              loadVoices();
+            };
+            
+            // Fallback: try loading after a short delay
+            setTimeout(() => {
+              if (window.speechSynthesis.getVoices().length > 0) {
+                loadVoices();
+              } else {
+                // Use default if voices still not loaded
+                const utterance = new SpeechSynthesisUtterance(textToSpeak);
+                utterance.lang = 'he-IL';
+                utterance.rate = 0.9;
+                utterance.pitch = 1.1;
+                utterance.onend = () => resolve('browser-tts-success');
+                utterance.onerror = () => reject(new Error('Browser TTS failed'));
+                window.speechSynthesis.speak(utterance);
+              }
+            }, 100);
+          }
         });
       } else {
         throw new Error("Text-to-speech not supported in this browser");
       }
     } catch (browserError) {
-      console.error("Browser TTS also failed:", browserError);
+      console.error("Browser TTS failed:", browserError);
+      // Final fallback - this should not happen as we already tried OpenAI above
+      throw new Error("נכשל ביצירת אודיו. אנא נסה שוב.");
+    }
+  } else {
+    // For non-Hebrew text, try OpenAI first with HD model and natural voice
+    try {
+      const openai = await getOpenAI();
+      const response = await openai.audio.speech.create({
+        model: "tts-1-hd", // HD model for more natural, higher quality speech
+        voice: "nova", // Female voice, clear and natural (alternative: "shimmer" for warm tone)
+        input: textToSpeak,
+        response_format: "mp3",
+      });
+      const arrayBuffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binaryString = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binaryString += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binaryString);
+    } catch (openAIError) {
+      // Fallback to browser TTS
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        return new Promise((resolve, reject) => {
+          const utterance = new SpeechSynthesisUtterance(textToSpeak);
+          utterance.lang = 'en-US';
+          utterance.rate = 0.9;
+          utterance.pitch = 1;
+          utterance.onend = () => resolve('browser-tts-success');
+          utterance.onerror = () => reject(new Error('Browser TTS failed'));
+          window.speechSynthesis.speak(utterance);
+        });
+      }
       throw new Error("נכשל ביצירת אודיו. אנא נסה שוב.");
     }
   }

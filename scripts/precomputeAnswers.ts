@@ -213,10 +213,11 @@ async function precomputeAnswers() {
   let failed = 0;
 
   // Process questions one by one
-  for (const question of validQuestions) {
-
+  for (let i = 0; i < validQuestions.length; i++) {
+    const question = validQuestions[i];
+    
     try {
-      console.log(`Processing question ${question.question_number}...`);
+      console.log(`\n[${i + 1}/${validQuestions.length}] Processing question ${question.question_number}...`);
       
       const result = await determineAnswerAndExplanation(
         question.question_text,
@@ -251,14 +252,22 @@ async function precomputeAnswers() {
         console.log(`✓ Question ${question.question_number} processed successfully`);
         console.log(`  Answer text: ${correctAnswerText.substring(0, 50)}...`);
         console.log(`  Answer index was: ${result.correctAnswerIndex}`);
+        console.log(`  Progress: ${processed} processed, ${failed} failed, ${validQuestions.length - (i + 1)} remaining`);
       }
 
-      // Add a small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Add a small delay to avoid rate limiting (increased delay for better reliability)
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
     } catch (error) {
-      console.error(`Error processing question ${question.question_number}:`, error);
+      console.error(`\nError processing question ${question.question_number}:`, error);
       failed++;
+      console.log(`  Progress: ${processed} processed, ${failed} failed, ${validQuestions.length - (i + 1)} remaining`);
+      
+      // If it's a rate limit error, wait longer before continuing
+      if (error instanceof Error && (error.message.includes('rate limit') || error.message.includes('429'))) {
+        console.log('  Rate limit detected, waiting 5 seconds...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
     }
   }
 
