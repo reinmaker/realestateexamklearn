@@ -71,6 +71,7 @@ const App: React.FC = () => {
   const quizQuestionsRef = useRef(quizQuestions); // Keep ref in sync with quiz questions
   const statsSavedForQuizRef = useRef(false); // Track if stats have been saved for current quiz
   const recentlyShownQuestionsRef = useRef<string[]>([]); // Track last 50 questions shown to avoid repeats
+  const chatSessionInitializedRef = useRef(false); // Track if chat session has been initialized
   
   // Keep refs in sync with state
   useEffect(() => {
@@ -411,6 +412,10 @@ const App: React.FC = () => {
         score: 0,
         isFinished: false,
       };
+      // Reset chat history when starting a new quiz
+      if (chatSession) {
+        setChatSession(prev => prev ? { ...prev, history: [] } : null);
+      }
       // Continue with regeneration below
     } else {
       // Quiz is not finished - check if user is actively answering
@@ -584,19 +589,17 @@ const App: React.FC = () => {
             // If we have more AI questions than currently in state, add them
             if (currentQuizQuestions.length < aiQuestions.length) {
               if (userHasStarted) {
-                // User has started - append only new questions to the end
+                // User has started - append only new questions to the end (maintains batch order: first batch first, last batch last)
                 const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
-                // Shuffle only the new questions before appending
-                const shuffledNewQuestions = [...newQuestions].sort(() => Math.random() - 0.5);
-                setQuizQuestions(prev => [...(prev || []), ...shuffledNewQuestions]);
-                quizQuestionsRef.current = [...currentQuizQuestions, ...shuffledNewQuestions];
-                console.log('Final: Added', shuffledNewQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
+                // Append new questions in order (no shuffling - maintain batch order)
+                setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
+                quizQuestionsRef.current = [...currentQuizQuestions, ...newQuestions];
+                console.log('Final: Added', newQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
               } else {
-                // User hasn't started - shuffle all questions and set
-                const shuffledAiQuestions = [...aiQuestions].sort(() => Math.random() - 0.5);
-                setQuizQuestions(shuffledAiQuestions);
-                quizQuestionsRef.current = shuffledAiQuestions;
-                console.log('Final: Added all AI questions (shuffled), length:', shuffledAiQuestions.length);
+                // User hasn't started - set all questions in order (first batch first, last batch last)
+                setQuizQuestions([...aiQuestions]);
+                quizQuestionsRef.current = [...aiQuestions];
+                console.log('Final: Added all AI questions in order (first batch first, last batch last), length:', aiQuestions.length);
               }
             } else {
               console.log('Final: All AI questions already added, length:', aiQuestions.length);
@@ -727,19 +730,17 @@ const App: React.FC = () => {
             // If we have more AI questions than currently in state, add them
             if (currentQuizQuestions.length < aiQuestions.length) {
               if (userHasStarted) {
-                // User has started - append only new questions to the end
+                // User has started - append only new questions to the end (maintains batch order: first batch first, last batch last)
                 const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
-                // Shuffle only the new questions before appending
-                const shuffledNewQuestions = [...newQuestions].sort(() => Math.random() - 0.5);
-                setQuizQuestions(prev => [...(prev || []), ...shuffledNewQuestions]);
-                quizQuestionsRef.current = [...currentQuizQuestions, ...shuffledNewQuestions];
-                console.log('Final: Added', shuffledNewQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
+                // Append new questions in order (no shuffling - maintain batch order)
+                setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
+                quizQuestionsRef.current = [...currentQuizQuestions, ...newQuestions];
+                console.log('Final: Added', newQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
               } else {
-                // User hasn't started - shuffle all questions and set
-                const shuffledAiQuestions = [...aiQuestions].sort(() => Math.random() - 0.5);
-                setQuizQuestions(shuffledAiQuestions);
-                quizQuestionsRef.current = shuffledAiQuestions;
-                console.log('Final: Added all AI questions (shuffled), length:', shuffledAiQuestions.length);
+                // User hasn't started - set all questions in order (first batch first, last batch last)
+                setQuizQuestions([...aiQuestions]);
+                quizQuestionsRef.current = [...aiQuestions];
+                console.log('Final: Added all AI questions in order (first batch first, last batch last), length:', aiQuestions.length);
               }
             } else {
               console.log('Final: All AI questions already added, length:', aiQuestions.length);
@@ -1170,18 +1171,23 @@ const App: React.FC = () => {
         if (!examQuestions) {
           regenerateExam();
         }
-        try {
-          const userName = user?.name || user?.email?.split('@')[0] || undefined;
-          const newChat = await createChatSession(documentContent, userName);
-          const greeting = userName 
-            ? `היי ${userName}, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?`
-            : 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
-          setChatSession({
-            chat: newChat,
-            history: [{ role: 'model', text: greeting }],
-          });
-        } catch (error) {
-          console.error('Failed to initialize chat session:', error);
+        // Only initialize chat session if it hasn't been initialized yet (preserve existing history)
+        if (!chatSessionInitializedRef.current) {
+          chatSessionInitializedRef.current = true;
+          try {
+            const userName = user?.name || user?.email?.split('@')[0] || undefined;
+            const newChat = await createChatSession(documentContent, userName);
+            const greeting = userName 
+              ? `היי ${userName}, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?`
+              : 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
+            setChatSession({
+              chat: newChat,
+              history: [{ role: 'model', text: greeting }],
+            });
+          } catch (error) {
+            console.error('Failed to initialize chat session:', error);
+            chatSessionInitializedRef.current = false; // Reset on error so it can retry
+          }
         }
       }
     };
@@ -1332,6 +1338,7 @@ const App: React.FC = () => {
           setExamQuestions(null);
           setFlashcards(null);
           setChatSession(null);
+          chatSessionInitializedRef.current = false; // Reset initialization flag on logout
           setIsExamInProgress(false);
           resetQuizProgress();
           resetFlashcardsProgress();
@@ -1518,6 +1525,12 @@ const App: React.FC = () => {
 
   const handleSetView = useCallback(async (view: ViewType) => {
     if(isExamInProgress && view !== 'exam') return;
+    
+    // Reset chat history when starting a new quiz (only if coming from a different view)
+    if (view === 'quiz' && currentView !== 'quiz' && chatSession) {
+      setChatSession(prev => prev ? { ...prev, history: [] } : null);
+    }
+    
     setCurrentView(view);
     setIsMobileSidebarOpen(false);
     
@@ -1531,7 +1544,7 @@ const App: React.FC = () => {
         console.error('Error refreshing stats on home navigation:', refreshError);
       }
     }
-  }, [currentUser]);
+  }, [currentUser, chatSession, currentView]);
   
   const handleCreateTargetedFlashcards = useCallback(async (weaknesses: string[]) => {
       setCurrentView('flashcards');
@@ -1660,6 +1673,8 @@ const App: React.FC = () => {
             userName={currentUser?.name || currentUser?.email?.split('@')[0]}
             analysis={analysis}
             isAnalyzing={isAnalyzing}
+            chatSession={chatSession}
+            setChatSession={setChatSession}
         />;
       case 'exam':
         if (!currentUser?.email_confirmed) {

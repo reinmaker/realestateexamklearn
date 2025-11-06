@@ -14,12 +14,12 @@ let geminiKey: string | null = null;
 // Initialize OpenAI client
 const getOpenAI = async (): Promise<OpenAI> => {
   try {
-    // Try to get API key from Supabase secrets first
+    // Try to get API key from environment variables
     const apiKey = await getOpenAIKey();
     
-    // If apiKey is null, Edge Function is unavailable, fall through to env
+    // If apiKey is null, fall through to direct env read
     if (!apiKey) {
-      throw new Error('EDGE_FUNCTION_UNAVAILABLE');
+      throw new Error('API_KEY_NOT_FOUND');
     }
     
     // If key changed, recreate client
@@ -33,14 +33,14 @@ const getOpenAI = async (): Promise<OpenAI> => {
     
     return openAIClient;
   } catch (error) {
-    // Fallback to environment variable if Supabase fetch fails
+    // Fallback to direct environment variable read
     const errorMsg = error instanceof Error ? error.message : String(error);
-    if (!errorMsg.includes('EDGE_FUNCTION_UNAVAILABLE')) {
-      console.warn('Failed to fetch OpenAI key from Supabase, falling back to env:', error);
+    if (!errorMsg.includes('API_KEY_NOT_FOUND')) {
+      console.warn('Failed to get OpenAI key, falling back to direct env read:', error);
     }
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is not configured in Supabase secrets or environment variables');
+      throw new Error('OPENAI_API_KEY is not configured in environment variables');
     }
     
     if (!openAIClient || openAIKey !== apiKey) {
@@ -58,12 +58,12 @@ const getOpenAI = async (): Promise<OpenAI> => {
 // Initialize Gemini client
 const getGemini = async (): Promise<GoogleGenAI> => {
   try {
-    // Try to get API key from Supabase secrets first
+    // Try to get API key from environment variables
     const apiKey = await getGeminiKey();
     
-    // If apiKey is null, Edge Function is unavailable, fall through to env
+    // If apiKey is null, fall through to direct env read
     if (!apiKey) {
-      throw new Error('EDGE_FUNCTION_UNAVAILABLE');
+      throw new Error('API_KEY_NOT_FOUND');
     }
     
     // If key changed, recreate client
@@ -74,14 +74,14 @@ const getGemini = async (): Promise<GoogleGenAI> => {
     
     return geminiClient;
   } catch (error) {
-    // Fallback to environment variable if Supabase fetch fails
+    // Fallback to direct environment variable read
     const errorMsg = error instanceof Error ? error.message : String(error);
-    if (!errorMsg.includes('EDGE_FUNCTION_UNAVAILABLE')) {
-      console.warn('Failed to fetch Gemini key from Supabase, falling back to env:', error);
+    if (!errorMsg.includes('API_KEY_NOT_FOUND')) {
+      console.warn('Failed to get Gemini key, falling back to direct env read:', error);
     }
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is not configured in Supabase secrets or environment variables');
+      throw new Error('GEMINI_API_KEY is not configured in environment variables');
     }
     
     if (!geminiClient || geminiKey !== apiKey) {

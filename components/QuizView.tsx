@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { QuizQuestion, QuizResult, QuizProgress, AnalysisResult, ViewType } from '../types';
+import { QuizQuestion, QuizResult, QuizProgress, AnalysisResult, ViewType, ChatSession, ChatMessage } from '../types';
 import { SparklesIcon, FlashcardsIcon, QuizIcon, CheckIcon, CloseIcon, SpeakerIcon } from './icons';
 import { generateSpeech, generateTeacherReaction } from '../services/aiService';
 
@@ -53,10 +53,12 @@ interface QuizViewProps {
   createTargetedQuiz: (weaknesses: string[]) => Promise<void>;
   analysis: AnalysisResult | null;
   isAnalyzing: boolean;
+  chatSession: ChatSession | null;
+  setChatSession: React.Dispatch<React.SetStateAction<ChatSession | null>>;
 }
 
 const QuizView: React.FC<QuizViewProps> = ({
-  userName, documentContent, setAppError, openSideChat, onQuestionAnswered, questions, isLoading, regenerateQuiz, totalQuestions, quizProgress, setQuizProgress, setView, createTargetedFlashcards, createTargetedQuiz, analysis, isAnalyzing }) => {
+  userName, documentContent, setAppError, openSideChat, onQuestionAnswered, questions, isLoading, regenerateQuiz, totalQuestions, quizProgress, setQuizProgress, setView, createTargetedFlashcards, createTargetedQuiz, analysis, isAnalyzing, chatSession, setChatSession }) => {
   
   const hebrewLetters = ['א', 'ב', 'ג', 'ד'];
   
@@ -259,6 +261,12 @@ const QuizView: React.FC<QuizViewProps> = ({
         setTeacherMessageQuestion(currentQuestion); // Store question for chat
         setShowTeacherMessage(true);
         
+        // Add teacher reaction to chat history during the quiz
+        if (chatSession && setChatSession) {
+          const teacherMessage: ChatMessage = { role: 'model', text: reaction };
+          setChatSession(prev => prev ? { ...prev, history: [...prev.history, teacherMessage] } : null);
+        }
+        
         // Auto-hide after 6 seconds (longer for more detailed messages)
         setTimeout(() => {
           setShowTeacherMessage(false);
@@ -273,6 +281,12 @@ const QuizView: React.FC<QuizViewProps> = ({
         setTeacherMessage(fallbackMessage);
         setTeacherMessageQuestion(currentQuestion); // Store question for chat
         setShowTeacherMessage(true);
+        
+        // Add fallback teacher reaction to chat history during the quiz
+        if (chatSession && setChatSession) {
+          const teacherMessage: ChatMessage = { role: 'model', text: fallbackMessage };
+          setChatSession(prev => prev ? { ...prev, history: [...prev.history, teacherMessage] } : null);
+        }
         
         // Auto-hide after 6 seconds
         setTimeout(() => {
@@ -479,11 +493,11 @@ const QuizView: React.FC<QuizViewProps> = ({
                             </div>
                             {analysis.weaknesses && analysis.weaknesses.length > 0 && (
                                 <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3">
-                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-sm">
-                                        {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-slate-600 border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2 text-slate-700" /> צור כרטיסיות ממוקדות</>}
+                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-lg hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                        {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2 text-white" /> צור כרטיסיות ממוקדות</>}
                                     </button>
-                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-sm">
-                                        {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-slate-600 border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2 text-slate-700" /> צור בוחן חיזוק</>}
+                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                        {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2 text-white" /> צור בוחן חיזוק</>}
                                     </button>
                                 </div>
                             )}
@@ -502,13 +516,19 @@ const QuizView: React.FC<QuizViewProps> = ({
                             const userAnswerIndex = userAnswers[index] ?? null;
                             const isQuestionCorrect = userAnswerIndex !== null && userAnswerIndex === q.correctAnswerIndex;
                             const hasUserAnswer = userAnswerIndex !== null;
+                            const isQuestionWrong = hasUserAnswer && !isQuestionCorrect;
+                            
+                            // Debug: Log wrong answers
+                            if (isQuestionWrong) {
+                                console.log(`Question ${index + 1} - Wrong answer: User selected ${userAnswerIndex}, Correct is ${q.correctAnswerIndex}`);
+                            }
                             
                             return (
-                                <div key={index} className={`bg-white p-5 rounded-lg border-2 ${isQuestionCorrect ? 'border-green-300' : hasUserAnswer ? 'border-red-300' : 'border-slate-200'}`}>
+                                <div key={index} className={`bg-white p-5 rounded-lg border-2 ${isQuestionCorrect ? 'border-green-300' : hasUserAnswer ? 'border-red-400' : 'border-slate-200'}`}>
                                     <div className="flex items-center justify-between mb-4">
                                         <p className="font-semibold text-slate-800">{index + 1}. {q.question}</p>
                                         {hasUserAnswer && (
-                                            <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${isQuestionCorrect ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                            <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${isQuestionCorrect ? 'bg-green-100 text-green-800' : 'bg-red-200 text-red-900 font-bold'}`}>
                                                 {isQuestionCorrect ? (
                                                     <>
                                                         <CheckIcon className="h-4 w-4" />
@@ -535,7 +555,8 @@ const QuizView: React.FC<QuizViewProps> = ({
                                                 styles = "border-green-400 bg-green-50 text-green-900 font-semibold";
                                             }
                                             if (isSelectedAndWrong) {
-                                                styles = "border-red-400 bg-red-50 text-red-900 font-semibold";
+                                                // Make wrong answers very prominent with darker red
+                                                styles = "border-red-500 bg-red-100 text-red-900 font-bold";
                                             }
                                             if (isSelectedAndCorrect) {
                                                 styles = "border-green-500 bg-green-100 text-green-900 font-bold";
@@ -543,7 +564,7 @@ const QuizView: React.FC<QuizViewProps> = ({
 
                                             return (
                                                 <div key={optIndex} className={`p-3 border-2 rounded-md flex justify-between items-center gap-4 ${styles}`}>
-                                                    <span className={`flex-grow ${isSelectedAndWrong ? 'line-through' : ''}`}>
+                                                    <span className="flex-grow">
                                                         {hebrewLetters[optIndex]}. {option}
                                                     </span>
                                                     
