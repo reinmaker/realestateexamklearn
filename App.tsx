@@ -391,6 +391,24 @@ const App: React.FC = () => {
     }
   }, [quizProgress.isFinished, quizQuestions, quizHistory, currentUser]);
 
+  // Helper function to add timeout to question generation
+  const generateWithTimeout = async (
+    generateFn: () => Promise<QuizQuestion[]>,
+    timeoutMs: number = 60000 // 1 minute default
+  ): Promise<QuizQuestion[] | null> => {
+    try {
+      const timeoutPromise = new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), timeoutMs);
+      });
+      
+      const result = await Promise.race([generateFn(), timeoutPromise]);
+      return result;
+    } catch (error) {
+      console.error('Error in generateWithTimeout:', error);
+      return null;
+    }
+  };
+
   const regenerateQuiz = useCallback(async () => {
     // CRITICAL: Don't regenerate if user is actively answering a question
     // This prevents disrupting their current question
@@ -508,9 +526,21 @@ const App: React.FC = () => {
             let batchQuestions: QuizQuestion[] = [];
             
             try {
+              let useDbFallback = false;
+              
               if (!hasEnoughData) {
-                // Not enough data - generate general AI questions
-                batchQuestions = await generateQuiz(documentContent, questionsInThisBatch);
+                // Not enough data - generate general AI questions with timeout
+                const result = await generateWithTimeout(
+                  () => generateQuiz(documentContent, questionsInThisBatch),
+                  60000 // 1 minute timeout
+                );
+                
+                if (result === null) {
+                  console.warn(`AI generation timed out after 1 minute for batch ${batchIndex + 1}, falling back to DB`);
+                  useDbFallback = true;
+                } else {
+                  batchQuestions = result;
+                }
               } else {
                 // Enough data - generate based on weak/strong topics (70% weak, 30% strong)
                 const { weakTopics, strongTopics } = getWeakAndStrongTopics(topicProgress);
@@ -519,22 +549,67 @@ const App: React.FC = () => {
                 const weakCount = Math.round(questionsInThisBatch * 0.7);
                 const strongCount = questionsInThisBatch - weakCount;
                 
-                // Generate weak topic questions
+                // Generate weak topic questions with timeout
                 if (weakCount > 0 && weakTopics.length > 0) {
-                  const weakBatch = await generateTargetedQuiz(weakTopics, documentContent, weakCount);
-                  batchQuestions.push(...weakBatch);
+                  const result = await generateWithTimeout(
+                    () => generateTargetedQuiz(weakTopics, documentContent, weakCount),
+                    60000 // 1 minute timeout
+                  );
+                  
+                  if (result === null) {
+                    console.warn(`AI generation timed out for weak topics, falling back to DB`);
+                    useDbFallback = true;
+                  } else {
+                    batchQuestions.push(...result);
+                  }
                 } else if (weakCount > 0) {
-                  const generalBatch = await generateQuiz(documentContent, weakCount);
-                  batchQuestions.push(...generalBatch);
+                  const result = await generateWithTimeout(
+                    () => generateQuiz(documentContent, weakCount),
+                    60000 // 1 minute timeout
+                  );
+                  
+                  if (result === null) {
+                    console.warn(`AI generation timed out for weak count, falling back to DB`);
+                    useDbFallback = true;
+                  } else {
+                    batchQuestions.push(...result);
+                  }
                 }
                 
-                // Generate strong topic questions
-                if (strongCount > 0 && strongTopics.length > 0) {
-                  const strongBatch = await generateTargetedQuiz(strongTopics, documentContent, strongCount);
-                  batchQuestions.push(...strongBatch);
-                } else if (strongCount > 0) {
-                  const generalBatch = await generateQuiz(documentContent, strongCount);
-                  batchQuestions.push(...generalBatch);
+                // Generate strong topic questions with timeout
+                if (strongCount > 0 && strongTopics.length > 0 && !useDbFallback) {
+                  const result = await generateWithTimeout(
+                    () => generateTargetedQuiz(strongTopics, documentContent, strongCount),
+                    60000 // 1 minute timeout
+                  );
+                  
+                  if (result === null) {
+                    console.warn(`AI generation timed out for strong topics, falling back to DB`);
+                    useDbFallback = true;
+                  } else {
+                    batchQuestions.push(...result);
+                  }
+                } else if (strongCount > 0 && !useDbFallback) {
+                  const result = await generateWithTimeout(
+                    () => generateQuiz(documentContent, strongCount),
+                    60000 // 1 minute timeout
+                  );
+                  
+                  if (result === null) {
+                    console.warn(`AI generation timed out for strong count, falling back to DB`);
+                    useDbFallback = true;
+                  } else {
+                    batchQuestions.push(...result);
+                  }
+                }
+              }
+              
+              // If AI generation timed out, fall back to DB questions
+              if (useDbFallback || batchQuestions.length === 0) {
+                console.log(`Falling back to DB questions for batch ${batchIndex + 1}`);
+                const dbBatch = await getDbQuestionsAsQuiz(questionsInThisBatch, documentContent);
+                if (dbBatch.length > 0) {
+                  batchQuestions = dbBatch;
                 }
               }
               
@@ -553,25 +628,37 @@ const App: React.FC = () => {
               
               aiQuestions.push(...randomizedBatch);
               
-              // Update ref always (for internal tracking)
-              quizQuestionsRef.current = [...aiQuestions];
+              // Check current state RIGHT BEFORE updating (user might have started during batch generation)
+              const currentProgressCheck = quizProgressRef.current;
+              const currentStateCheck = currentProgressCheck.currentQuestionIndex > 0 || currentProgressCheck.selectedAnswer !== null;
               
-              // Update UI progressively only if user hasn't started
-              if (!stateCheck) {
-                setQuizQuestions([...aiQuestions]);
-                console.log(`Batch ${batchIndex + 1} complete: ${aiQuestions.length}/${TOTAL_QUESTIONS} questions generated`);
+              // Get current questions from ref to ensure we have the latest
+              const currentQuizQuestions = quizQuestionsRef.current || [];
+              const existingLength = currentQuizQuestions.length;
+              
+              // Always append new questions to avoid overwriting current question
+              if (aiQuestions.length > existingLength) {
+                // Get only the NEW questions (those beyond what we already have)
+                const newQuestions = aiQuestions.slice(existingLength);
+                
+                // Update ref first
+                quizQuestionsRef.current = [...aiQuestions];
+                
+                // Append new questions to the END of existing questions (preserves current question)
+                setQuizQuestions(prev => {
+                  const prevLength = prev?.length || 0;
+                  if (prevLength < existingLength) {
+                    // State is behind ref, use ref as base
+                    return [...currentQuizQuestions, ...newQuestions];
+                  }
+                  // State is up to date, append new questions
+                  return [...(prev || []), ...newQuestions];
+                });
+                
+                console.log(`Batch ${batchIndex + 1} complete: Added ${newQuestions.length} new questions to end (total: ${aiQuestions.length}/${TOTAL_QUESTIONS})`);
               } else {
-                // User started - append new questions to the END of existing array to avoid disrupting current question
-                const currentQuizQuestions = quizQuestionsRef.current || [];
-                const existingLength = currentQuizQuestions.length;
-                if (aiQuestions.length > existingLength) {
-                  // Get only the NEW questions (those beyond what we already have)
-                  const newQuestions = aiQuestions.slice(existingLength);
-                  // Append new questions to the END of existing questions
-                  setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
-                  quizQuestionsRef.current = [...currentQuizQuestions, ...newQuestions];
-                  console.log(`Batch ${batchIndex + 1} complete (background): Added ${newQuestions.length} new questions to end (total: ${aiQuestions.length}/${TOTAL_QUESTIONS})`);
-                }
+                // Update ref only (no new questions to add)
+                quizQuestionsRef.current = [...aiQuestions];
               }
               
             } catch (error) {
@@ -589,19 +676,11 @@ const App: React.FC = () => {
             
             // If we have more AI questions than currently in state, add them
             if (currentQuizQuestions.length < aiQuestions.length) {
-              if (userHasStarted) {
-                // User has started - append only new questions to the end (maintains batch order: first batch first, last batch last)
-                const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
-                // Append new questions in order (no shuffling - maintain batch order)
-                setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
-                quizQuestionsRef.current = [...currentQuizQuestions, ...newQuestions];
-                console.log('Final: Added', newQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
-              } else {
-                // User hasn't started - set all questions in order (first batch first, last batch last)
-                setQuizQuestions([...aiQuestions]);
-                quizQuestionsRef.current = [...aiQuestions];
-                console.log('Final: Added all AI questions in order (first batch first, last batch last), length:', aiQuestions.length);
-              }
+              // Always append new questions to avoid overwriting current question
+              const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
+              setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
+              quizQuestionsRef.current = [...aiQuestions];
+              console.log('Final: Added', newQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
             } else {
               console.log('Final: All AI questions already added, length:', aiQuestions.length);
             }
@@ -657,27 +736,74 @@ const App: React.FC = () => {
             let batchQuestions: QuizQuestion[] = [];
             
             try {
+              let useDbFallback = false;
+              
               // Generate based on weak/strong topics (70% weak, 30% strong)
               // Calculate how many questions to generate from weak vs strong topics
               const weakCount = Math.round(questionsInThisBatch * 0.7);
               const strongCount = questionsInThisBatch - weakCount;
               
-              // Generate weak topic questions
+              // Generate weak topic questions with timeout
               if (weakCount > 0 && weakTopics.length > 0) {
-                const weakBatch = await generateTargetedQuiz(weakTopics, documentContent, weakCount);
-                batchQuestions.push(...weakBatch);
+                const result = await generateWithTimeout(
+                  () => generateTargetedQuiz(weakTopics, documentContent, weakCount),
+                  60000 // 1 minute timeout
+                );
+                
+                if (result === null) {
+                  console.warn(`AI generation timed out for weak topics, falling back to DB`);
+                  useDbFallback = true;
+                } else {
+                  batchQuestions.push(...result);
+                }
               } else if (weakCount > 0) {
-                const generalBatch = await generateQuiz(documentContent, weakCount);
-                batchQuestions.push(...generalBatch);
+                const result = await generateWithTimeout(
+                  () => generateQuiz(documentContent, weakCount),
+                  60000 // 1 minute timeout
+                );
+                
+                if (result === null) {
+                  console.warn(`AI generation timed out for weak count, falling back to DB`);
+                  useDbFallback = true;
+                } else {
+                  batchQuestions.push(...result);
+                }
               }
               
-              // Generate strong topic questions
-              if (strongCount > 0 && strongTopics.length > 0) {
-                const strongBatch = await generateTargetedQuiz(strongTopics, documentContent, strongCount);
-                batchQuestions.push(...strongBatch);
-              } else if (strongCount > 0) {
-                const generalBatch = await generateQuiz(documentContent, strongCount);
-                batchQuestions.push(...generalBatch);
+              // Generate strong topic questions with timeout
+              if (strongCount > 0 && strongTopics.length > 0 && !useDbFallback) {
+                const result = await generateWithTimeout(
+                  () => generateTargetedQuiz(strongTopics, documentContent, strongCount),
+                  60000 // 1 minute timeout
+                );
+                
+                if (result === null) {
+                  console.warn(`AI generation timed out for strong topics, falling back to DB`);
+                  useDbFallback = true;
+                } else {
+                  batchQuestions.push(...result);
+                }
+              } else if (strongCount > 0 && !useDbFallback) {
+                const result = await generateWithTimeout(
+                  () => generateQuiz(documentContent, strongCount),
+                  60000 // 1 minute timeout
+                );
+                
+                if (result === null) {
+                  console.warn(`AI generation timed out for strong count, falling back to DB`);
+                  useDbFallback = true;
+                } else {
+                  batchQuestions.push(...result);
+                }
+              }
+              
+              // If AI generation timed out, fall back to DB questions
+              if (useDbFallback || batchQuestions.length === 0) {
+                console.log(`Falling back to DB questions for batch ${batchIndex + 1}`);
+                const dbBatch = await getDbQuestionsAsQuiz(questionsInThisBatch, documentContent);
+                if (dbBatch.length > 0) {
+                  batchQuestions = dbBatch;
+                }
               }
               
               // Randomize options for AI-generated questions
@@ -695,25 +821,37 @@ const App: React.FC = () => {
               
               aiQuestions.push(...randomizedBatch);
               
-              // Update ref always (for internal tracking)
-              quizQuestionsRef.current = [...aiQuestions];
+              // Check current state RIGHT BEFORE updating (user might have started during batch generation)
+              const currentProgressCheck = quizProgressRef.current;
+              const currentStateCheck = currentProgressCheck.currentQuestionIndex > 0 || currentProgressCheck.selectedAnswer !== null;
               
-              // Update UI progressively only if user hasn't started
-              if (!stateCheck) {
-                setQuizQuestions([...aiQuestions]);
-                console.log(`Batch ${batchIndex + 1} complete: ${aiQuestions.length}/${TOTAL_QUESTIONS} questions generated`);
+              // Get current questions from ref to ensure we have the latest
+              const currentQuizQuestions = quizQuestionsRef.current || [];
+              const existingLength = currentQuizQuestions.length;
+              
+              // Always append new questions to avoid overwriting current question
+              if (aiQuestions.length > existingLength) {
+                // Get only the NEW questions (those beyond what we already have)
+                const newQuestions = aiQuestions.slice(existingLength);
+                
+                // Update ref first
+                quizQuestionsRef.current = [...aiQuestions];
+                
+                // Append new questions to the END of existing questions (preserves current question)
+                setQuizQuestions(prev => {
+                  const prevLength = prev?.length || 0;
+                  if (prevLength < existingLength) {
+                    // State is behind ref, use ref as base
+                    return [...currentQuizQuestions, ...newQuestions];
+                  }
+                  // State is up to date, append new questions
+                  return [...(prev || []), ...newQuestions];
+                });
+                
+                console.log(`Batch ${batchIndex + 1} complete: Added ${newQuestions.length} new questions to end (total: ${aiQuestions.length}/${TOTAL_QUESTIONS})`);
               } else {
-                // User started - append new questions to the END of existing array to avoid disrupting current question
-                const currentQuizQuestions = quizQuestionsRef.current || [];
-                const existingLength = currentQuizQuestions.length;
-                if (aiQuestions.length > existingLength) {
-                  // Get only the NEW questions (those beyond what we already have)
-                  const newQuestions = aiQuestions.slice(existingLength);
-                  // Append new questions to the END of existing questions
-                  setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
-                  quizQuestionsRef.current = [...currentQuizQuestions, ...newQuestions];
-                  console.log(`Batch ${batchIndex + 1} complete (background): Added ${newQuestions.length} new questions to end (total: ${aiQuestions.length}/${TOTAL_QUESTIONS})`);
-                }
+                // Update ref only (no new questions to add)
+                quizQuestionsRef.current = [...aiQuestions];
               }
               
             } catch (error) {
@@ -730,19 +868,11 @@ const App: React.FC = () => {
             
             // If we have more AI questions than currently in state, add them
             if (currentQuizQuestions.length < aiQuestions.length) {
-              if (userHasStarted) {
-                // User has started - append only new questions to the end (maintains batch order: first batch first, last batch last)
-                const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
-                // Append new questions in order (no shuffling - maintain batch order)
-                setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
-                quizQuestionsRef.current = [...currentQuizQuestions, ...newQuestions];
-                console.log('Final: Added', newQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
-              } else {
-                // User hasn't started - set all questions in order (first batch first, last batch last)
-                setQuizQuestions([...aiQuestions]);
-                quizQuestionsRef.current = [...aiQuestions];
-                console.log('Final: Added all AI questions in order (first batch first, last batch last), length:', aiQuestions.length);
-              }
+              // Always append new questions to avoid overwriting current question
+              const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
+              setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
+              quizQuestionsRef.current = [...aiQuestions];
+              console.log('Final: Added', newQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
             } else {
               console.log('Final: All AI questions already added, length:', aiQuestions.length);
             }
