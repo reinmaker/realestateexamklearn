@@ -17,7 +17,7 @@ export interface ChatMessage {
   text: string;
 }
 
-export type ViewType = 'home' | 'quiz' | 'flashcards' | 'chat' | 'exam';
+export type ViewType = 'home' | 'quiz' | 'flashcards' | 'chat' | 'exam' | 'support';
 
 export interface ChatSession {
   chat: Chat;

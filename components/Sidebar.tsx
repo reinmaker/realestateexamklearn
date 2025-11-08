@@ -1,6 +1,7 @@
 import React from 'react';
 import { ViewType } from '../types';
-import { HomeIcon, QuizIcon, FlashcardsIcon, ChatIcon, UserIcon, LogoutIcon, CloseIcon, ExamIcon } from './icons';
+import { HomeIcon, QuizIcon, FlashcardsIcon, ChatIcon, UserIcon, LogoutIcon, CloseIcon, ExamIcon, SupportIcon } from './icons';
+import ExamCountdown from './ExamCountdown';
 
 interface SidebarProps {
   currentView: ViewType;
@@ -22,26 +23,49 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
     { id: 'quiz', label: 'בוחן אימון', icon: QuizIcon, disabled: !emailConfirmed },
     { id: 'flashcards', label: 'כרטיסיות', icon: FlashcardsIcon, disabled: !emailConfirmed },
     { id: 'chat', label: 'המורה הפרטי שלך', icon: ChatIcon, disabled: !emailConfirmed },
+    { id: 'support', label: 'תמיכה', icon: SupportIcon, disabled: false },
   ];
 
   const examTool = { id: 'exam', label: 'מבחן תיווך', icon: ExamIcon, disabled: !emailConfirmed };
 
   return (
-    <aside className={`w-64 bg-white p-6 flex flex-col border-l border-slate-200
+    <aside className={`w-64 bg-slate-700 border-l border-slate-600 p-6 flex flex-col
       fixed md:relative inset-y-0 right-0 z-50
       transition-transform duration-300 ease-in-out
       ${isMobileOpen ? 'translate-x-0' : 'translate-x-full'} md:translate-x-0
     `}>
-      <div className="flex justify-between items-center mb-2">
-        <h1 className="text-xl font-bold text-sky-600">RealMind</h1>
-        <button onClick={onMobileClose} className="md:hidden p-1 text-slate-500 hover:text-slate-800">
+      <div className="relative mb-2 pb-2">
+        <div className="flex flex-col items-center justify-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 512 512" className="flex-shrink-0">
+            <defs>
+              <style>
+                {`.logo-stroke { stroke: white; fill: none; stroke-width: 22; stroke-linecap: round; stroke-linejoin: round; }
+                  .logo-fill { fill: white; }`}
+              </style>
+            </defs>
+            {/* Graduation cap outline */}
+            <polygon className="logo-stroke" points="256,86 88,154 256,222 424,154 256,86"/>
+            <polyline className="logo-stroke" points="228,200 228,244 256,256 284,244 284,200"/>
+            {/* Tassel */}
+            <line className="logo-stroke" x1="356" y1="161" x2="356" y2="233"/>
+            <circle className="logo-fill" cx="356" cy="256" r="14"/>
+            {/* House outline */}
+            <polyline className="logo-stroke" points="96,308 256,196 416,308"/>
+            <rect className="logo-stroke" x="120" y="308" width="272" height="148" rx="12" ry="12"/>
+            {/* Windows */}
+            <rect className="logo-stroke" x="212" y="354" width="40" height="40" rx="3" ry="3"/>
+            <rect className="logo-stroke" x="260" y="354" width="40" height="40" rx="3" ry="3"/>
+            <rect className="logo-stroke" x="212" y="402" width="40" height="40" rx="3" ry="3"/>
+            <rect className="logo-stroke" x="260" y="402" width="40" height="40" rx="3" ry="3"/>
+          </svg>
+          <h1 className="text-xl font-bold text-white">RealMind</h1>
+        </div>
+        <button onClick={onMobileClose} className="absolute top-0 left-0 md:hidden p-1 text-slate-300 hover:text-white">
             <CloseIcon className="h-6 w-6" />
         </button>
       </div>
-      <p className="text-xs text-slate-600 font-medium mb-6 border-b border-slate-200 pb-4">
-        הדרך שלך להצלחה
-      </p>
-      <nav className="flex-grow">
+      <ExamCountdown />
+      <nav className="flex-grow mt-6">
         <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">כלי לימוד</p>
         <ul className="space-y-2">
           {learningTools.map((item) => (
@@ -55,10 +79,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
                     }
                 }}
                 disabled={isExamInProgress || item.disabled}
-                className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-md transition-colors duration-200 ${
+                className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-colors duration-200 ${
                   currentView === item.id
-                    ? 'bg-sky-100 text-sky-600'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'bg-sky-500 text-white shadow-sm'
+                    : 'text-slate-300 hover:bg-slate-600 hover:text-white'
                 } ${isExamInProgress || item.disabled ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
                 title={item.disabled ? 'אימות אימייל נדרש' : ''}
               >
@@ -68,14 +92,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
             </li>
           ))}
         </ul>
-        <div className="mt-6 pt-6 border-t border-slate-200">
+        <div className="mt-6 pt-6 border-t border-slate-600">
           <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">בחינה רשמית</p>
           <ul>
             <li>
                 <button
                     onClick={() => setView(examTool.id as ViewType)}
                     disabled={examTool.disabled}
-                    className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-md transition-colors duration-200 shadow-sm border ${
+                    className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-colors duration-200 shadow-sm border ${
                     currentView === examTool.id
                         ? 'bg-gradient-to-br from-sky-600 to-sky-700 text-white font-bold border-sky-500 shadow-md'
                         : 'bg-gradient-to-br from-sky-500 to-sky-600 text-white border-sky-400 hover:from-sky-600 hover:to-sky-700 hover:shadow-lg'
@@ -89,20 +113,20 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
           </ul>
         </div>
       </nav>
-      <div className="pt-4 border-t border-slate-200">
+      <div className="pt-4 border-t border-slate-600">
           <div className="px-4 py-2.5 flex items-center">
-              <UserIcon className="h-8 w-8 text-slate-500 bg-slate-100 rounded-full p-1.5 ml-3" />
-              <div className="flex-grow">
-                <p className="text-sm font-semibold text-slate-800 capitalize">
-                  {currentUser?.name || currentUser?.email || 'משתמש'}
-                </p>
-                <p className="text-xs text-slate-500">משתמש פעיל</p>
-              </div>
+            <UserIcon className="h-8 w-8 text-slate-300 bg-slate-600 rounded-full p-1.5 ml-3" />
+            <div className="flex-grow">
+              <p className="text-sm font-semibold text-white capitalize">
+                {currentUser?.name || currentUser?.email || 'משתמש'}
+              </p>
+              <p className="text-xs text-slate-400">משתמש פעיל</p>
+            </div>
           </div>
           <button
             onClick={onLogout}
             disabled={isExamInProgress}
-            className="w-full flex items-center mt-2 px-4 py-2.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full flex items-center mt-2 px-4 py-2.5 text-sm font-medium rounded-xl text-slate-300 hover:bg-slate-600 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <LogoutIcon className="h-5 w-5 ml-3" />
             התנתק

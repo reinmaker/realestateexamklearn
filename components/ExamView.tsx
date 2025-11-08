@@ -406,8 +406,8 @@ const ExamView: React.FC<ExamViewProps> = ({
   if (examState === 'intro') {
     return (
         <div className="flex-grow flex items-center justify-center p-4 md:p-8">
-            <div className="text-center max-w-2xl bg-white p-8 rounded-lg border border-slate-200 shadow-sm">
-                <ExamIcon className="mx-auto h-16 w-16 text-sky-500 bg-sky-100 p-3 rounded-full" />
+            <div className="text-center max-w-2xl bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+                <ExamIcon className="mx-auto h-16 w-16 text-white bg-slate-700 p-3 rounded-full" />
                 <h2 className="text-3xl font-bold mt-4 text-slate-800">סימולציית מבחן תיווך</h2>
                 <p className="text-slate-600 mt-4 mb-6">
                     זהו מבחן המדמה את מבחן התיווך האמיתי. עליך לענות על 25 שאלות ב-120 דקות.
@@ -422,7 +422,7 @@ const ExamView: React.FC<ExamViewProps> = ({
                 <button 
                     onClick={handleStartExam}
                     disabled={attemptsLeft <= 0}
-                    className="w-full sm:w-auto px-10 py-3 bg-sky-600 text-white font-bold rounded-lg hover:bg-sky-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed text-lg"
+                    className="w-full sm:w-auto px-10 py-3 bg-sky-600 text-white font-bold rounded-2xl hover:bg-sky-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed text-lg"
                 >
                     {attemptsLeft > 0 ? 'התחל את המבחן' : 'מיצית את כל נסיונות הכשלון להיום'}
                 </button>
@@ -458,7 +458,7 @@ const ExamView: React.FC<ExamViewProps> = ({
           <div>
               <h2 className="text-2xl font-semibold text-red-600">יצירת המבחן נכשלה</h2>
               <p className="text-slate-500 mt-2">לא ניתן היה ליצור מבחן מלא. נסה לחזור לדף הבית ולנסות שוב.</p>
-               <button onClick={() => setView('home')} className="mt-8 px-6 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700 transition-colors">
+               <button onClick={() => setView('home')} className="mt-8 px-6 py-2 bg-sky-600 text-white font-semibold rounded-2xl hover:bg-sky-700 transition-colors">
                   חזור לדף הבית
                 </button>
           </div>
@@ -473,7 +473,7 @@ const ExamView: React.FC<ExamViewProps> = ({
             <div className="max-w-4xl mx-auto">
                 <h2 className="text-3xl font-bold text-slate-800 text-center">המבחן הסתיים</h2>
                 
-                <div className="my-8 flex flex-col items-center justify-center bg-white p-6 rounded-lg border border-slate-200 shadow-sm text-center animate-bounce-in">
+                <div className="my-8 flex flex-col items-center justify-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center animate-bounce-in">
                     <h3 className={`text-3xl font-bold animate-fade-in ${passed ? 'text-green-600' : 'text-red-600'}`} style={{ animationDelay: '0.2s' }}>
                         {passed ? 'עברת את המבחן!' : 'נכשלת במבחן'}
                     </h3>
@@ -495,22 +495,22 @@ const ExamView: React.FC<ExamViewProps> = ({
                 
                 <div className="my-8">
                     <h3 className="text-2xl font-bold mb-4 flex items-center text-slate-900">
-                        <SparklesIcon className="h-6 w-6 text-sky-500 ml-2" /> ניתוח AI
+                        <SparklesIcon className="h-6 w-6 text-slate-700 ml-2" /> ניתוח AI
                     </h3>
                     {isAnalyzing ? (
-                        <div className="bg-white border border-slate-200 p-6 rounded-lg text-center">
+                        <div className="bg-white border border-slate-200 p-6 rounded-2xl text-center">
                             <div className="w-8 h-8 border-4 border-dashed rounded-full animate-spin border-sky-500 mx-auto"></div>
                             <p className="mt-4 text-slate-500">מנתח את תוצאות המבחן...</p>
                         </div>
                     ) : analysis ? (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
-                            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                            <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                                 <h4 className="text-lg font-semibold text-green-600 mb-3">נושאים חזקים</h4>
                                 <ul className="space-y-2 list-disc list-inside text-slate-600">
                                     {analysis.strengths.map((item, index) => <li key={index}>{item}</li>)}
                                 </ul>
                             </div>
-                            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                            <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                                 <h4 className="text-lg font-semibold text-amber-600 mb-3">נושאים לשיפור</h4>
                                 <ul className="space-y-2 list-disc list-inside text-slate-600">
                                     {analysis.weaknesses.map((item, index) => <li key={index}>{item}</li>)}
@@ -518,17 +518,17 @@ const ExamView: React.FC<ExamViewProps> = ({
                             </div>
                             {analysis.weaknesses && analysis.weaknesses.length > 0 && (
                                 <div className="lg:col-span-2 mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3">
-                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-lg hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-2xl hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
                                         {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2 text-white" /> צור כרטיסיות ממוקדות</>}
                                     </button>
-                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
                                         {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2 text-white" /> צור בוחן חיזוק</>}
                                     </button>
                                 </div>
                             )}
                             {analysis.recommendations && (
-                                <div className="lg:col-span-2 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
-                                    <h4 className="text-lg font-semibold text-sky-600 mb-3">המלצות להמשך</h4>
+                                <div className="lg:col-span-2 bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
+                                    <h4 className="text-lg font-semibold text-slate-700 mb-3">המלצות להמשך</h4>
                                     <p className="text-slate-600 whitespace-pre-wrap">{analysis.recommendations}</p>
                                 </div>
                             )}
@@ -539,7 +539,7 @@ const ExamView: React.FC<ExamViewProps> = ({
                 <div className="mt-8 pt-6 border-t border-slate-300 flex flex-col items-center gap-4">
                     {/* Show practice options if failed and no attempts left */}
                     {!passed && attemptsLeft === 0 && (
-                        <div className="w-full max-w-2xl text-center p-6 bg-red-50 border border-red-200 rounded-lg mb-4">
+                        <div className="w-full max-w-2xl text-center p-6 bg-red-50 border border-red-200 rounded-2xl mb-4">
                             <h4 className="text-lg font-semibold text-red-800 mb-3">מיצית את כל נסיונות הכשלון להיום</h4>
                             <p className="text-red-700 mb-4">
                                 ניסית להיבחן פעמיים היום ונכשלת בשתיהן. לפי כללי המבחן, ניתן להיכשל עד 2 פעמים ביום.
@@ -553,7 +553,7 @@ const ExamView: React.FC<ExamViewProps> = ({
                     
                     {/* Show practice options if failed but still have attempts */}
                     {!passed && attemptsLeft > 0 && (
-                        <div className="w-full max-w-2xl text-center p-6 bg-amber-50 border border-amber-200 rounded-lg mb-4">
+                        <div className="w-full max-w-2xl text-center p-6 bg-amber-50 border border-amber-200 rounded-2xl mb-4">
                             <h4 className="text-lg font-semibold text-amber-800 mb-3">בוא נחזק את הנקודות החלשות</h4>
                             <p className="text-amber-700 mb-4">ה-AI זיהה את הנושאים שבהם אתה מתקשה. בחר אחת מהאפשרויות הבאות כדי להתמקד ולשפר את הביצועים שלך.</p>
                         </div>
@@ -561,12 +561,12 @@ const ExamView: React.FC<ExamViewProps> = ({
                     
                     {/* Show "Start Another Exam" button if user passed OR if they have attempts left */}
                     {(passed || attemptsLeft > 0) && (
-                        <button onClick={handleRestartExam} className="px-8 py-3 bg-sky-600 text-white font-bold rounded-lg hover:bg-sky-700 transition-colors text-lg">
+                        <button onClick={handleRestartExam} className="px-8 py-3 bg-sky-600 text-white font-bold rounded-2xl hover:bg-sky-700 transition-colors text-lg">
                             {passed ? 'עשה מבחן נוסף' : `נסה שוב (נותרו ${attemptsLeft} נסיונות)`}
                         </button>
                     )}
                     
-                    <button onClick={() => setView('home')} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg transition-colors">
+                    <button onClick={() => setView('home')} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-2xl transition-colors">
                         חזור לדף הבית
                     </button>
                 </div>
@@ -577,7 +577,7 @@ const ExamView: React.FC<ExamViewProps> = ({
                         {questions.map((q, index) => {
                             const userAnswerIndex = userAnswers[index];
                             return (
-                                <div key={index} className="bg-white p-5 rounded-lg border border-slate-200">
+                                <div key={index} className="bg-white p-5 rounded-2xl border border-slate-200">
                                     <p className="font-semibold text-slate-800 mb-4">{index + 1}. {q.question}</p>
                                     <div className="space-y-2 text-sm">
                                         {q.options.map((option, optIndex) => {
@@ -664,10 +664,10 @@ const ExamView: React.FC<ExamViewProps> = ({
     <div className="flex-grow p-4 md:p-8 overflow-y-auto">
       <div className="max-w-4xl mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-4">
-            <h2 className="text-xl font-semibold text-sky-600">מבחן תיווך</h2>
+            <h2 className="text-xl font-semibold text-slate-700">מבחן תיווך</h2>
             <div className="flex items-center gap-6">
                 <div className={`flex items-center gap-2 text-sm font-medium ${timeLeft < 60 ? 'text-red-600' : 'text-slate-600'}`}>
-                    <ClockIcon className="h-5 w-5" />
+                    <ClockIcon className="h-5 w-5 text-slate-700" />
                     <span className="font-mono text-base">{formatTime(timeLeft)}</span>
                 </div>
                 <div className="text-sm font-medium text-slate-600 flex items-center gap-2">
@@ -686,7 +686,7 @@ const ExamView: React.FC<ExamViewProps> = ({
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
             </div>
         </div>
-        <div key={currentQuestionIndex} className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm animate-slide-in-right">
+        <div key={currentQuestionIndex} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm animate-slide-in-right">
           <div className="flex items-center justify-between gap-4 mb-6">
             <p className="text-lg font-semibold text-slate-900 flex-1">{currentQuestion.question}</p>
             <button
@@ -707,7 +707,7 @@ const ExamView: React.FC<ExamViewProps> = ({
               <button
                 key={index}
                 onClick={() => handleAnswerSelect(index)}
-                className={`p-4 rounded-lg border transition-all duration-300 flex items-baseline gap-3 text-right ${getButtonClass(index)} hover:scale-[1.02] active:scale-[0.98] animate-scale-in`}
+                className={`p-4 rounded-2xl border transition-all duration-300 flex items-baseline gap-3 text-right ${getButtonClass(index)} hover:scale-[1.02] active:scale-[0.98] animate-scale-in`}
                 style={{ animationDelay: `${index * 0.05}s` }}
               >
                 <span className="font-bold">{hebrewLetters[index]}.</span>
@@ -720,13 +720,13 @@ const ExamView: React.FC<ExamViewProps> = ({
             <button
                 onClick={handlePreviousQuestion}
                 disabled={currentQuestionIndex === 0}
-                className="w-auto px-6 py-2 bg-white border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-auto px-6 py-2 bg-white border border-slate-300 text-slate-700 font-semibold rounded-2xl hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
                 השאלה הקודמת
             </button>
             <button
                 onClick={calculateScoreAndFinish}
-                className="w-auto px-8 py-2 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition-colors"
+                className="w-auto px-8 py-2 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 transition-colors"
             >
                 סיים מבחן
             </button>

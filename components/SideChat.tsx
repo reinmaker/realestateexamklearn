@@ -128,11 +128,11 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
 
   return (
     <>
-        <div className={`fixed bottom-20 left-4 z-50 w-96 max-w-[calc(100vw-2rem)] h-[500px] bg-slate-100/95 backdrop-blur-md shadow-2xl rounded-xl flex flex-col transform transition-all duration-300 origin-bottom-left ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
+        <div className={`fixed bottom-20 left-4 z-50 w-96 max-w-[calc(100vw-2rem)] h-[500px] bg-slate-100/95 backdrop-blur-md shadow-2xl rounded-2xl flex flex-col transform transition-all duration-300 origin-bottom-left ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
             <div className="flex items-center justify-between p-4 border-b border-slate-200 flex-shrink-0">
                 <div className="flex items-center">
-                    {isContextual ? <SparklesIcon className="h-6 w-6 text-sky-600 ml-3" /> : <AIAvatarIcon className="h-8 w-8 ml-2"/> }
-                    <h2 className="text-lg font-semibold text-sky-600">{headerTitle}</h2>
+                    {isContextual ? <SparklesIcon className="h-6 w-6 text-slate-700 ml-3" /> : <AIAvatarIcon className="h-8 w-8 ml-2"/> }
+                    <h2 className="text-lg font-semibold text-slate-700">{headerTitle}</h2>
                 </div>
                 <button onClick={handleClose} className="p-2 rounded-full hover:bg-slate-200">
                     <CloseIcon className="h-6 w-6" />
@@ -145,18 +145,18 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
                             {message.role === 'model' && (
                                 <AIAvatarIcon className="h-8 w-8 flex-shrink-0" />
                             )}
-                            <div className={`max-w-md lg:max-w-lg rounded-lg px-4 py-2 ${message.role === 'user' ? 'bg-sky-600 text-white' : 'bg-white text-slate-800'}`}>
+                            <div className={`max-w-md lg:max-w-lg rounded-2xl px-4 py-2 ${message.role === 'user' ? 'bg-sky-600 text-white' : 'bg-white text-slate-800'}`}>
                                 <p className="whitespace-pre-wrap">{message.text}</p>
                             </div>
                             {message.role === 'user' && (
-                                <UserIcon className="h-8 w-8 text-slate-500 bg-slate-200 rounded-full p-1.5 flex-shrink-0" />
+                                <UserIcon className="h-8 w-8 text-white bg-slate-700 rounded-full p-1.5 flex-shrink-0" />
                             )}
                         </div>
                     ))}
                     {isLoading && (
                         <div className="flex items-end gap-2 justify-start">
                             <AIAvatarIcon className="h-8 w-8 flex-shrink-0" />
-                            <div className="max-w-md lg:max-w-lg rounded-lg px-4 py-2 bg-white text-slate-800">
+                            <div className="max-w-md lg:max-w-lg rounded-2xl px-4 py-2 bg-white text-slate-800">
                                 <div className="flex items-center space-x-2 rtl:space-x-reverse">
                                     <div className="w-2 h-2 bg-slate-400 rounded-full animate-pulse [animation-delay:-0.3s]"></div>
                                     <div className="w-2 h-2 bg-slate-400 rounded-full animate-pulse [animation-delay:-0.15s]"></div>
@@ -176,13 +176,13 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
                     <div ref={messagesEndRef} />
                 </div>
                 <form onSubmit={handleSendMessage} className="p-4 border-t border-slate-200 flex-shrink-0">
-                    <div className="flex items-center bg-white rounded-lg">
+                    <div className="flex items-center bg-white rounded-2xl">
                         <input
                             type="text"
                             value={userInput}
                             onChange={(e) => setUserInput(e.target.value)}
                             placeholder="שאל שאלה..."
-                            className="w-full bg-white px-4 py-3 text-slate-900 focus:outline-none rounded-lg"
+                            className="w-full bg-white px-4 py-3 text-slate-900 focus:outline-none rounded-2xl"
                             disabled={isLoading || !currentSession}
                         />
                         <button

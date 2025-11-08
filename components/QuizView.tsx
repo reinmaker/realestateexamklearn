@@ -449,7 +449,7 @@ const QuizView: React.FC<QuizViewProps> = ({
             <div className="max-w-4xl mx-auto">
                 <h2 className="text-3xl font-bold text-slate-800 text-center">הבוחן הושלם!</h2>
                 
-                <div className="my-8 flex flex-col items-center justify-center bg-white p-6 rounded-lg border border-slate-200 shadow-sm animate-bounce-in">
+                <div className="my-8 flex flex-col items-center justify-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm animate-bounce-in">
                     <ProgressCircle percentage={percentage} />
                     <p className="text-2xl font-bold mt-4 text-slate-800 animate-fade-in" style={{ animationDelay: '0.3s' }}>הציון שלך: {score} מתוך {questions.length}</p>
                     <p className={`text-2xl font-bold mt-2 animate-fade-in ${passed ? 'text-green-600' : 'text-red-600'}`} style={{ animationDelay: '0.4s' }}>
@@ -458,33 +458,33 @@ const QuizView: React.FC<QuizViewProps> = ({
                 </div>
 
                 <div className="my-8 pt-6 border-t border-slate-300 flex flex-col sm:flex-row justify-center gap-4">
-                    <button onClick={regenerateQuiz} className="px-8 py-3 bg-sky-600 text-white font-bold rounded-lg hover:bg-sky-700 transition-colors text-lg">
+                    <button onClick={regenerateQuiz} className="px-8 py-3 bg-sky-600 text-white font-bold rounded-2xl hover:bg-sky-700 transition-colors text-lg">
                         עשה בוחן נוסף
                     </button>
-                    <button onClick={() => setView('home')} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg transition-colors">
+                    <button onClick={() => setView('home')} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-2xl transition-colors">
                         חזור לדף הבית
                     </button>
                 </div>
 
                 <div className="my-8">
                     <h3 className="text-2xl font-bold mb-4 flex items-center text-slate-900">
-                        <SparklesIcon className="h-6 w-6 text-sky-500 ml-2" /> ניתוח AI
+                        <SparklesIcon className="h-6 w-6 text-slate-700 ml-2" /> ניתוח AI
                     </h3>
                     {isAnalyzing ? (
-                        <div className="bg-white border border-slate-200 p-6 rounded-lg text-center">
+                        <div className="bg-white border border-slate-200 p-6 rounded-2xl text-center">
                             <div className="w-8 h-8 border-4 border-dashed rounded-full animate-spin border-sky-500 mx-auto"></div>
                             <p className="mt-4 text-slate-500">מנתח את התקדמותך...</p>
                         </div>
                     ) : analysis ? (
                         <>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
-                                <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                                     <h4 className="text-lg font-semibold text-green-600 mb-3">נושאים חזקים</h4>
                                     <ul className="space-y-2 list-disc list-inside text-slate-600">
                                         {analysis.strengths.map((item, index) => <li key={index}>{item}</li>)}
                                     </ul>
                                 </div>
-                                <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                                     <h4 className="text-lg font-semibold text-amber-600 mb-3">נושאים לשיפור</h4>
                                     <ul className="space-y-2 list-disc list-inside text-slate-600">
                                         {analysis.weaknesses.map((item, index) => <li key={index}>{item}</li>)}
@@ -493,16 +493,16 @@ const QuizView: React.FC<QuizViewProps> = ({
                             </div>
                             {analysis.weaknesses && analysis.weaknesses.length > 0 && (
                                 <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3">
-                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-lg hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-2xl hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
                                         {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2 text-white" /> צור כרטיסיות ממוקדות</>}
                                     </button>
-                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
                                         {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2 text-white" /> צור בוחן חיזוק</>}
                                     </button>
                                 </div>
                             )}
-                            <div className="mt-6 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
-                                <h4 className="text-lg font-semibold text-sky-600 mb-3">המלצות להמשך</h4>
+                            <div className="mt-6 bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
+                                <h4 className="text-lg font-semibold text-slate-700 mb-3">המלצות להמשך</h4>
                                 <p className="text-slate-600 whitespace-pre-wrap">{analysis.recommendations}</p>
                             </div>
                         </>
@@ -524,7 +524,7 @@ const QuizView: React.FC<QuizViewProps> = ({
                             }
                             
                             return (
-                                <div key={index} className={`bg-white p-5 rounded-lg border-2 ${isQuestionCorrect ? 'border-green-300' : hasUserAnswer ? 'border-red-400' : 'border-slate-200'}`}>
+                                <div key={index} className={`bg-white p-5 rounded-2xl border-2 ${isQuestionCorrect ? 'border-green-300' : hasUserAnswer ? 'border-red-400' : 'border-slate-200'}`}>
                                     <div className="flex items-center justify-between mb-4">
                                         <p className="font-semibold text-slate-800">{index + 1}. {q.question}</p>
                                         {hasUserAnswer && (
@@ -563,7 +563,7 @@ const QuizView: React.FC<QuizViewProps> = ({
                                             }
 
                                             return (
-                                                <div key={optIndex} className={`p-3 border-2 rounded-md flex justify-between items-center gap-4 ${styles}`}>
+                                                <div key={optIndex} className={`p-3 border-2 rounded-xl flex justify-between items-center gap-4 ${styles}`}>
                                                     <span className="flex-grow">
                                                         {hebrewLetters[optIndex]}. {option}
                                                     </span>
@@ -614,7 +614,7 @@ const QuizView: React.FC<QuizViewProps> = ({
                 <div>
                     <h2 className="text-2xl font-semibold text-red-600">יצירת הבוחן נכשלה</h2>
                     <p className="text-slate-500 mt-2">לא ניתן היה ליצור בוחן מלא. אנא נסה שוב.</p>
-                    <button onClick={regenerateQuiz} className="mt-6 px-6 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700 transition-colors">
+                    <button onClick={regenerateQuiz} className="mt-6 px-6 py-2 bg-sky-600 text-white font-semibold rounded-2xl hover:bg-sky-700 transition-colors">
                         נסה שוב
                     </button>
                 </div>
@@ -645,10 +645,10 @@ const QuizView: React.FC<QuizViewProps> = ({
                 setShowTeacherMessage(false); // Close toast when opening chat
               }
             }}
-            className="bg-slate-700 border-2 border-slate-600 text-white rounded-lg shadow-lg p-4 flex items-start gap-3 cursor-pointer hover:bg-slate-600 transition-colors"
+            className="bg-slate-700 border-2 border-slate-600 text-white rounded-2xl shadow-lg p-4 flex items-start gap-3 cursor-pointer hover:bg-slate-600 transition-colors"
           >
             <div className="flex-shrink-0 mt-0.5">
-              <SparklesIcon className="h-5 w-5 text-amber-400" />
+              <SparklesIcon className="h-5 w-5 text-slate-700" />
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-white leading-relaxed">{teacherMessage}</p>
@@ -670,7 +670,7 @@ const QuizView: React.FC<QuizViewProps> = ({
       
       <div className="max-w-4xl mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-4">
-            <h2 className="text-xl font-semibold text-sky-600">בוחן אימון</h2>
+            <h2 className="text-xl font-semibold text-slate-700">בוחן אימון</h2>
             <div className="flex items-center gap-6">
                 <div className="text-sm font-medium text-slate-600 flex items-center gap-2">
                     שאלה {currentQuestionIndex + 1} מתוך {totalQuestions}
@@ -688,7 +688,7 @@ const QuizView: React.FC<QuizViewProps> = ({
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
             </div>
         </div>
-        <div key={currentQuestionIndex} className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm animate-slide-in-right">
+        <div key={currentQuestionIndex} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm animate-slide-in-right">
           <div className="flex items-center justify-between gap-4 mb-6">
             <p className="text-lg font-semibold text-slate-900 flex-1">{currentQuestion.question}</p>
             <button
@@ -710,7 +710,7 @@ const QuizView: React.FC<QuizViewProps> = ({
                 key={index}
                 onClick={() => handleAnswerSelect(index)}
                 disabled={showAnswer}
-                className={`p-4 rounded-lg border transition-all duration-300 flex items-baseline gap-3 text-right ${getButtonClass(index)} ${!showAnswer ? 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]' : 'cursor-default'} animate-scale-in`}
+                className={`p-4 rounded-2xl border transition-all duration-300 flex items-baseline gap-3 text-right ${getButtonClass(index)} ${!showAnswer ? 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]' : 'cursor-default'} animate-scale-in`}
                 style={{ animationDelay: `${index * 0.05}s` }}
               >
                 <span className="font-bold">{hebrewLetters[index]}.</span>
@@ -720,7 +720,7 @@ const QuizView: React.FC<QuizViewProps> = ({
           </div>
         </div>
         {showAnswer && (
-          <div className="mt-6 p-4 rounded-lg bg-slate-50 border border-slate-200 animate-slide-up">
+          <div className="mt-6 p-4 rounded-2xl bg-slate-50 border border-slate-200 animate-slide-up">
             <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                 <div className='flex-grow'>
                     <div className="flex items-center justify-between gap-4 mb-2">
@@ -742,8 +742,8 @@ const QuizView: React.FC<QuizViewProps> = ({
                 </div>
                 <button 
                     onClick={handleFurtherExplanation}
-                    className="flex items-center justify-center w-full sm:w-auto px-4 py-2 bg-sky-100 text-sky-700 text-sm font-semibold rounded-lg hover:bg-sky-200 transition-colors shrink-0 self-end sm:self-center">
-                    <SparklesIcon className="h-4 w-4 ml-1" />
+                    className="flex items-center justify-center w-full sm:w-auto px-4 py-2 bg-sky-100 text-sky-700 text-sm font-semibold rounded-2xl hover:bg-sky-200 transition-colors shrink-0 self-end sm:self-center">
+                    <SparklesIcon className="h-4 w-4 ml-1 text-slate-700" />
                     שאל את המורה
                 </button>
             </div>
@@ -756,7 +756,7 @@ const QuizView: React.FC<QuizViewProps> = ({
               ) : (
                 <button
                   onClick={handleNextQuestion}
-                  className="w-full sm:w-auto px-6 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700 transition-colors"
+                  className="w-full sm:w-auto px-6 py-2 bg-sky-600 text-white font-semibold rounded-2xl hover:bg-sky-700 transition-colors"
                 >
                   {isLastQuestion && isFullyLoaded ? 'סיים בוחן' : 'השאלה הבאה'}
                 </button>

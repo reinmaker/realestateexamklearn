@@ -79,7 +79,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
 
     return (
         <div className="flex items-center justify-center min-h-screen bg-slate-100">
-            <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg">
+            <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-2xl shadow-lg">
                 <div className="text-center">
                     <h1 className="text-3xl font-bold text-slate-900">ברוך הבא</h1>
                     <p className="mt-2 text-slate-600">
@@ -88,7 +88,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                 </div>
 
                 {error && (
-                    <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md">
+                    <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl">
                         <div className="flex items-start gap-2">
                             <span className="flex-grow">{error}</span>
                             {error.includes('אימייל') && error.includes('לא אושר') && email && (
@@ -115,7 +115,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                 )}
 
                 {successMessage && (
-                    <div className="p-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md">
+                    <div className="p-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl">
                         {successMessage}
                     </div>
                 )}
@@ -131,7 +131,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                                 type="text"
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
-                                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
                                 placeholder="הכנס שם מלא"
                             />
                         </div>
@@ -147,7 +147,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
-                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
                             placeholder="הכנס אימייל"
                         />
                     </div>
@@ -163,7 +163,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                             onChange={(e) => setPassword(e.target.value)}
                             required
                             minLength={6}
-                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
                             placeholder="הכנס סיסמה (מינימום 6 תווים)"
                         />
                     </div>
@@ -171,7 +171,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className="w-full flex items-center justify-center px-4 py-3 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="w-full flex items-center justify-center px-4 py-3 border border-transparent rounded-xl shadow-sm text-base font-medium text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                         {isLoading ? (
                             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -194,7 +194,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                     type="button"
                     onClick={handleGoogleLogin}
                     disabled={isLoading}
-                    className="w-full flex items-center justify-center px-4 py-3 border border-slate-300 rounded-md shadow-sm text-base font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full flex items-center justify-center px-4 py-3 border border-slate-300 rounded-xl shadow-sm text-base font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                     {isLoading ? (
                         <div className="w-5 h-5 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>

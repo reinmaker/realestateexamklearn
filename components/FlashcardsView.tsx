@@ -216,7 +216,7 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
           <div>
               <h2 className="text-2xl font-semibold text-red-600">יצירת הכרטיסיות נכשלה</h2>
               <p className="text-slate-500 mt-2">לא ניתן היה ליצור סט כרטיסיות.</p>
-              <button onClick={regenerateFlashcards} className="mt-6 px-6 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700 transition-colors">
+              <button onClick={regenerateFlashcards} className="mt-6 px-6 py-2 bg-sky-600 text-white font-semibold rounded-2xl hover:bg-sky-700 transition-colors">
                   נסה שוב
               </button>
           </div>
@@ -241,11 +241,11 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
   return (
     <div className="flex-grow p-4 md:p-8 flex flex-col items-center justify-center">
       <div className="w-full max-w-2xl flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold text-sky-600">מצב כרטיסיות</h2>
+        <h2 className="text-xl font-semibold text-slate-700">מצב כרטיסיות</h2>
         <button 
           onClick={handleCreateNewSet}
           disabled={isLoading}
-          className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-2xl hover:bg-sky-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {isLoading ? (
             <>
@@ -263,7 +263,7 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
           style={{ transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}
         >
           {/* Front of card */}
-          <div className="w-full rounded-xl bg-amber-50 text-slate-900 flex flex-col justify-center p-6 sm:p-8 text-center border border-amber-200 shadow-md" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
+          <div className="w-full rounded-2xl bg-amber-50 text-slate-900 flex flex-col justify-center p-6 sm:p-8 text-center border border-amber-200 shadow-md" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
             <div className="flex items-center justify-center gap-2 mb-4 flex-shrink-0">
                 <p className="text-xl sm:text-2xl font-bold">{currentCard.question}</p>
                 <button
@@ -305,25 +305,25 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                 <button
                     onClick={handleGetHint}
                     disabled={isHintLoading || !!hint}
-                    className="flex items-center justify-center mx-auto px-4 py-2 bg-amber-100 text-amber-800 text-sm font-semibold rounded-lg hover:bg-amber-200 transition-colors disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center mx-auto px-4 py-2 bg-amber-100 text-amber-800 text-sm font-semibold rounded-2xl hover:bg-amber-200 transition-colors disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                 >
                     {isHintLoading ? (
                         <div className="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
                     ) : (
-                       <> <LightbulbIcon className="h-4 w-4 ml-1" />קבל רמז</>
+                       <> <LightbulbIcon className="h-4 w-4 ml-1 text-slate-700" />קבל רמז</>
                     )}
                 </button>
                 {hint && (
                     <p className="mt-3 text-sm text-slate-600 bg-amber-100 p-3 rounded-md animate-fade-in">{hint}</p>
                 )}
             </div>
-            <button onClick={() => setIsFlipped(true)} className="w-full mt-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700 transition-colors">
+            <button onClick={() => setIsFlipped(true)} className="w-full mt-4 py-2 bg-sky-600 text-white font-semibold rounded-2xl hover:bg-sky-700 transition-colors">
                 הצג תשובה
             </button>
           </div>
           
           {/* Back of card */}
-          <div className="absolute w-full h-full top-0 left-0 rounded-xl bg-sky-50 text-slate-900 flex flex-col justify-center items-center p-6 sm:p-8 text-center border border-sky-200 shadow-md" style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
+          <div className="absolute w-full h-full top-0 left-0 rounded-2xl bg-sky-50 text-slate-900 flex flex-col justify-center items-center p-6 sm:p-8 text-center border border-sky-200 shadow-md" style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
              <div className="flex items-center justify-center gap-2 mb-4">
                 <p className="text-lg font-semibold text-slate-500">{currentCard.question}</p>
             </div>
@@ -345,11 +345,11 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
             <div className="mt-4 w-full flex flex-col items-center gap-3">
                  <button 
                     onClick={handleFurtherExplanation}
-                    className="flex items-center justify-center px-4 py-2 bg-sky-100 text-sky-700 text-sm font-semibold rounded-lg hover:bg-sky-200 transition-colors">
-                    <SparklesIcon className="h-4 w-4 ml-1" />
+                    className="flex items-center justify-center px-4 py-2 bg-sky-100 text-sky-700 text-sm font-semibold rounded-2xl hover:bg-sky-200 transition-colors">
+                    <SparklesIcon className="h-4 w-4 ml-1 text-slate-700" />
                     שאל את המורה
                 </button>
-                <button onClick={() => setIsFlipped(false)} className="w-full py-2 bg-slate-200 text-slate-800 font-semibold rounded-lg hover:bg-slate-300 transition-colors">
+                <button onClick={() => setIsFlipped(false)} className="w-full py-2 bg-slate-200 text-slate-800 font-semibold rounded-2xl hover:bg-slate-300 transition-colors">
                     הסתר תשובה
                 </button>
             </div>
@@ -359,7 +359,7 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
       
       {/* Navigation */}
       <div className="w-full max-w-2xl flex items-center justify-between">
-        <button onClick={handlePrev} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg transition-colors">
+        <button onClick={handlePrev} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-2xl transition-colors">
           הקודם
         </button>
         <div className="flex-grow text-center text-sm font-medium text-slate-500">
@@ -368,7 +368,7 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
             <div className="inline-block align-middle w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin mr-2"></div>
           )}
         </div>
-        <button onClick={handleNext} disabled={isLastCard && isLoading} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+        <button onClick={handleNext} disabled={isLastCard && isLoading} className="px-6 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
           הבא
         </button>
       </div>

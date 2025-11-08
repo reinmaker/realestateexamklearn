@@ -9,6 +9,7 @@ import ExamView from './components/ExamView';
 import ChatView from './components/ChatView';
 import ChatWidget from './components/SideChat';
 import LoginView from './components/LoginView';
+import SupportView from './components/SupportView';
 import { CloseIcon, MenuIcon } from './components/icons';
 import { documentContent } from './studyMaterial';
 import { generateQuiz, generateFlashcards, createChatSession, generateTargetedFlashcards, generateTargetedQuiz, generateQuizWithTopicDistribution, analyzeProgress } from './services/aiService';
@@ -403,7 +404,7 @@ const App: React.FC = () => {
     // If quiz is finished, always allow regeneration - reset progress first
     if (isQuizFinished) {
       console.log('Quiz is finished - allowing regeneration');
-      resetQuizProgress();
+    resetQuizProgress();
       // After reset, the ref should be updated, but we explicitly set it to ensure consistency
       quizProgressRef.current = {
         currentQuestionIndex: 0,
@@ -1329,22 +1330,22 @@ const App: React.FC = () => {
         // No user - only update if we're done checking initial session
         // Don't clear user during initial check to avoid race conditions
         if (!isCheckingAuth) {
-          setCurrentUser(null);
+    setCurrentUser(null);
           // User logged out - reset app state
-          setCurrentView('home');
-          setQuizHistory([]);
-          setExamHistory([]);
-          setQuizQuestions(null);
-          setExamQuestions(null);
-          setFlashcards(null);
-          setChatSession(null);
+    setCurrentView('home');
+    setQuizHistory([]);
+    setExamHistory([]);
+    setQuizQuestions(null);
+    setExamQuestions(null);
+    setFlashcards(null);
+    setChatSession(null);
           chatSessionInitializedRef.current = false; // Reset initialization flag on logout
-          setIsExamInProgress(false);
-          resetQuizProgress();
-          resetFlashcardsProgress();
-          setAnalysis(null);
-          setIsAnalyzing(false);
-          setAnalyzedHistoryCount(0);
+    setIsExamInProgress(false);
+    resetQuizProgress();
+    resetFlashcardsProgress();
+    setAnalysis(null);
+    setIsAnalyzing(false);
+    setAnalyzedHistoryCount(0);
           isInitialized = false;
           isLoadingUserDataRef.current = false;
           lastLoadedUserIdRef.current = null;
@@ -1638,7 +1639,7 @@ const App: React.FC = () => {
         if (!currentUser?.email_confirmed) {
           return (
             <div className="flex-grow p-4 md:p-8 overflow-y-auto flex items-center justify-center">
-              <div className="bg-white border border-yellow-200 rounded-lg shadow-sm p-8 max-w-md text-center">
+              <div className="bg-white border border-yellow-200 rounded-2xl shadow-sm p-8 max-w-md text-center">
                 <svg className="h-12 w-12 text-yellow-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
@@ -1648,7 +1649,7 @@ const App: React.FC = () => {
                 </p>
                 <button 
                   onClick={() => handleSetView('home')}
-                  className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors"
+                  className="px-4 py-2 bg-sky-600 text-white rounded-2xl hover:bg-sky-700 transition-colors"
                 >
                   חזור לדף הבית
                 </button>
@@ -1680,7 +1681,7 @@ const App: React.FC = () => {
         if (!currentUser?.email_confirmed) {
           return (
             <div className="flex-grow p-4 md:p-8 overflow-y-auto flex items-center justify-center">
-              <div className="bg-white border border-yellow-200 rounded-lg shadow-sm p-8 max-w-md text-center">
+              <div className="bg-white border border-yellow-200 rounded-2xl shadow-sm p-8 max-w-md text-center">
                 <svg className="h-12 w-12 text-yellow-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
@@ -1690,7 +1691,7 @@ const App: React.FC = () => {
                 </p>
                 <button 
                   onClick={() => handleSetView('home')}
-                  className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors"
+                  className="px-4 py-2 bg-sky-600 text-white rounded-2xl hover:bg-sky-700 transition-colors"
                 >
                   חזור לדף הבית
                 </button>
@@ -1718,7 +1719,7 @@ const App: React.FC = () => {
         if (!currentUser?.email_confirmed) {
           return (
             <div className="flex-grow p-4 md:p-8 overflow-y-auto flex items-center justify-center">
-              <div className="bg-white border border-yellow-200 rounded-lg shadow-sm p-8 max-w-md text-center">
+              <div className="bg-white border border-yellow-200 rounded-2xl shadow-sm p-8 max-w-md text-center">
                 <svg className="h-12 w-12 text-yellow-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
@@ -1728,7 +1729,7 @@ const App: React.FC = () => {
                 </p>
                 <button 
                   onClick={() => handleSetView('home')}
-                  className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors"
+                  className="px-4 py-2 bg-sky-600 text-white rounded-2xl hover:bg-sky-700 transition-colors"
                 >
                   חזור לדף הבית
                 </button>
@@ -1752,7 +1753,7 @@ const App: React.FC = () => {
         if (!currentUser?.email_confirmed) {
           return (
             <div className="flex-grow p-4 md:p-8 overflow-y-auto flex items-center justify-center">
-              <div className="bg-white border border-yellow-200 rounded-lg shadow-sm p-8 max-w-md text-center">
+              <div className="bg-white border border-yellow-200 rounded-2xl shadow-sm p-8 max-w-md text-center">
                 <svg className="h-12 w-12 text-yellow-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
@@ -1762,7 +1763,7 @@ const App: React.FC = () => {
                 </p>
                 <button 
                   onClick={() => handleSetView('home')}
-                  className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors"
+                  className="px-4 py-2 bg-sky-600 text-white rounded-2xl hover:bg-sky-700 transition-colors"
                 >
                   חזור לדף הבית
                 </button>
@@ -1775,6 +1776,8 @@ const App: React.FC = () => {
             chatSession={chatSession}
             setChatSession={setChatSession}
         />;
+      case 'support':
+        return <SupportView currentUser={currentUser} />;
       default:
         return null;
     }
@@ -1835,15 +1838,15 @@ const App: React.FC = () => {
         {!isExamInProgress && (
           <button 
             onClick={() => setIsMobileSidebarOpen(true)} 
-            className="md:hidden fixed top-4 right-4 z-30 p-2 bg-white/80 backdrop-blur-sm rounded-md border border-slate-200"
+            className="md:hidden fixed top-4 right-4 z-30 p-2 bg-slate-700/20 backdrop-blur-xl rounded-xl border border-white/20 shadow-lg"
             aria-label="פתח תפריט"
           >
-            <MenuIcon className="h-6 w-6" />
+            <MenuIcon className="h-6 w-6 text-slate-700" />
           </button>
         )}
 
         {appError && (
-            <div className="fixed top-4 left-1/2 -translate-x-1/2 max-w-md w-11/2 p-4 bg-red-100 border border-red-300 text-red-700 rounded-lg shadow-lg flex items-center justify-between z-50 animate-fade-in">
+            <div className="fixed top-4 left-1/2 -translate-x-1/2 max-w-md w-11/2 p-4 bg-red-100 border border-red-300 text-red-700 rounded-2xl shadow-lg flex items-center justify-between z-50 animate-fade-in">
                 <span>{appError}</span>
                 <button onClick={() => setAppError(null)} className="p-1 rounded-full hover:bg-red-200 mr-2">
                     <CloseIcon className="h-5 w-5" />

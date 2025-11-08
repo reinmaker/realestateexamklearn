@@ -20,9 +20,9 @@ interface HomeViewProps {
 }
 
 const StatCard: React.FC<{ title: string; value: string | number; description: string }> = ({ title, value, description }) => (
-    <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm">
+    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <p className="text-sm text-slate-500">{title}</p>
-        <p className="text-3xl font-bold text-sky-600 mt-1">{value}</p>
+        <p className="text-3xl font-bold text-slate-700 mt-1">{value}</p>
         <p className="text-xs text-slate-500 mt-2">{description}</p>
     </div>
 );
@@ -123,7 +123,7 @@ const ExamReadinessBar: React.FC<ExamReadinessBarProps> = ({ quizPassFail, total
     const currentColor = stageColors[stage - 1];
     
     return (
-        <div className="bg-white border border-slate-200 shadow-sm p-6 rounded-lg">
+        <div className="bg-white border border-slate-200 shadow-sm p-6 rounded-2xl">
             <div className="mb-4">
                 <h3 className="text-lg font-semibold text-slate-800 mb-1">רמת מוכנות למבחן</h3>
                 <p className={`text-sm font-medium ${currentColor.text}`}>{stageName}</p>
@@ -188,7 +188,7 @@ const ActionCard: React.FC<{ title: string; description: string; icon: React.Rea
     <button 
       onClick={onClick} 
       disabled={disabled}
-      className={`${prominent ? 'bg-gradient-to-br from-sky-500 to-sky-600 text-white border-sky-400' : 'bg-white text-slate-800 border-slate-200'} p-6 rounded-lg border shadow-sm text-right transition-all duration-300 flex flex-col items-start h-full w-full focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 ${
+      className={`${prominent ? 'bg-gradient-to-br from-sky-500 to-sky-600 text-white border-sky-400' : 'bg-white text-slate-800 border-slate-200'} p-3 md:p-6 rounded-2xl border shadow-sm text-right transition-all duration-300 flex flex-col items-start h-full w-full focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 ${
         disabled 
           ? 'opacity-50 cursor-not-allowed grayscale' 
           : prominent 
@@ -196,12 +196,12 @@ const ActionCard: React.FC<{ title: string; description: string; icon: React.Rea
             : 'hover:border-sky-400 hover:shadow-md'
       }`}
     >
-        <div className={`p-3 rounded-full mb-4 ${disabled ? 'bg-slate-100' : prominent ? 'bg-white/20' : 'bg-sky-100'}`}>
-            {React.cloneElement(icon, { className: `h-6 w-6 ${disabled ? 'text-slate-400' : prominent ? 'text-white' : 'text-sky-600'}` })}
+        <div className={`p-2 md:p-3 rounded-full mb-2 md:mb-4 ${disabled ? 'bg-slate-100' : prominent ? 'bg-white/20' : 'bg-slate-700'}`}>
+            {React.cloneElement(icon, { className: `h-4 w-4 md:h-6 md:w-6 ${disabled ? 'text-slate-400' : prominent ? 'text-white' : 'text-white'}` })}
         </div>
-        <h3 className={`text-lg font-bold mb-2 ${disabled ? 'text-slate-400' : prominent ? 'text-white' : 'text-slate-800'}`}>{title}</h3>
-        <p className={`text-sm flex-grow ${disabled ? 'text-slate-400' : prominent ? 'text-white/90' : 'text-slate-600'}`}>{description}</p>
-        <span className={`text-sm font-semibold mt-4 self-end ${disabled ? 'text-slate-400' : prominent ? 'text-white' : 'text-sky-600'}`}>
+        <h3 className={`text-base md:text-lg font-bold mb-1 md:mb-2 ${disabled ? 'text-slate-400' : prominent ? 'text-white' : 'text-slate-800'}`}>{title}</h3>
+        <p className={`text-xs md:text-sm flex-grow ${disabled ? 'text-slate-400' : prominent ? 'text-white/90' : 'text-slate-600'}`}>{description}</p>
+        <span className={`text-xs md:text-sm font-semibold mt-2 md:mt-4 self-end ${disabled ? 'text-slate-400' : prominent ? 'text-white' : 'text-sky-600'}`}>
           {disabled ? 'אימות נדרש' : 'בצע פעולה ←'}
         </span>
     </button>
@@ -330,7 +330,7 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
   return (
     <div className="flex-grow p-4 md:p-8 overflow-y-auto flex flex-col">
         {!emailConfirmed && (
-          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg shadow-sm order-1 animate-slide-up" style={{ animationDelay: '0s', animationFillMode: 'both' }}>
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-2xl shadow-sm order-1 animate-slide-up" style={{ animationDelay: '0s', animationFillMode: 'both' }}>
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0">
                 <svg className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -372,9 +372,9 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
         )}
         
         {/* Quick Actions - Show at top on mobile (order-2), bottom on desktop (md:order-5) */}
-        <div className="mb-10 mt-8 md:mt-12 order-2 md:order-5 animate-fade-in" style={{ animationDelay: '0.4s', animationFillMode: 'both' }}>
-            <h2 className="text-xl md:text-2xl font-bold mb-4 text-slate-800">פעולות מהירות</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="mb-6 md:mb-10 mt-4 md:mt-12 order-2 md:order-5 animate-fade-in" style={{ animationDelay: '0.4s', animationFillMode: 'both' }}>
+            <h2 className="text-lg md:text-2xl font-bold mb-2 md:mb-4 text-slate-800">פעולות מהירות</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
                 <div className="animate-scale-in" style={{ animationDelay: '0.5s', animationFillMode: 'both' }}>
                     <ActionCard 
                         title="בוחן אימון" 
@@ -407,17 +407,17 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
         
         {/* AI Analysis - Now above exam readiness */}
         <div className="mb-8 order-3 md:order-1 animate-fade-in" style={{ animationDelay: '0.1s', animationFillMode: 'both' }}>
-            <h2 className="text-xl md:text-2xl font-bold mb-4 flex items-center text-slate-900"><SparklesIcon className="h-5 w-5 md:h-6 md:w-6 text-sky-500 ml-2" /> ניתוח AI</h2>
+            <h2 className="text-xl md:text-2xl font-bold mb-4 flex items-center text-slate-900"><SparklesIcon className="h-5 w-5 md:h-6 md:w-6 text-slate-700 ml-2" /> ניתוח AI</h2>
             {allHistory.length === 0 ? (
-                <div className="bg-white border border-slate-200 p-8 rounded-lg text-center">
-                    <SparklesIcon className="mx-auto h-12 w-12 text-slate-300 mb-4" />
+                <div className="bg-white border border-slate-200 p-8 rounded-2xl text-center">
+                    <SparklesIcon className="mx-auto h-12 w-12 text-slate-700 mb-4" />
                     <h3 className="text-lg font-semibold text-slate-800">ניתוח הביצועים שלך יופיע כאן</h3>
                     <p className="text-slate-500 mt-2 max-w-md mx-auto">השלם בוחן אימון או מבחן כדי לקבל תובנות מבוססות AI על נקודות החוזק והחולשה שלך והמלצות מותאמות אישית.</p>
                 </div>
             ) : (
                 <>
                     {isAnalyzing && (
-                        <div className="bg-white border border-slate-200 p-6 rounded-lg text-center">
+                        <div className="bg-white border border-slate-200 p-6 rounded-2xl text-center">
                             <div className="w-8 h-8 border-4 border-dashed rounded-full animate-spin border-sky-500 mx-auto"></div>
                             <p className="mt-4 text-slate-500">מנתח את התקדמותך...</p>
                         </div>
@@ -425,13 +425,13 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
                     {analysis && !isAnalyzing && (
                          <>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
-                                <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                                     <h3 className="text-lg font-semibold text-green-600 mb-3">נושאים חזקים</h3>
                                     <ul className="space-y-2 list-disc list-inside text-slate-600">
                                         {analysis.strengths.map((item, index) => <li key={index}>{item}</li>)}
                                     </ul>
                                 </div>
-                                <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                                     <h3 className="text-lg font-semibold text-amber-600 mb-3">נושאים לשיפור</h3>
                                     <ul className="space-y-2 list-disc list-inside text-slate-600">
                                         {analysis.weaknesses.map((item, index) => <li key={index}>{item}</li>)}
@@ -440,16 +440,16 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
                             </div>
                             {analysis.weaknesses && analysis.weaknesses.length > 0 && (
                                 <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3 animate-fade-in">
-                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-lg hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-2xl hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
                                         {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2 text-white" /> צור כרטיסיות ממוקדות</>}
                                     </button>
-                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
                                         {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2 text-white" /> צור בוחן חיזוק</>}
                                     </button>
                                 </div>
                             )}
-                            <div className="mt-6 bg-white border border-slate-200 p-6 rounded-lg shadow-sm animate-fade-in">
-                                <h3 className="text-lg font-semibold text-sky-600 mb-3">המלצות להמשך</h3>
+                            <div className="mt-6 bg-white border border-slate-200 p-6 rounded-2xl shadow-sm animate-fade-in">
+                                <h3 className="text-lg font-semibold text-slate-700 mb-3">המלצות להמשך</h3>
                                 <p className="text-slate-600 whitespace-pre-wrap">{analysis.recommendations}</p>
                             </div>
                          </>

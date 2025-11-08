@@ -50,26 +50,26 @@ const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSe
 
   return (
     <div className="flex-grow flex flex-col p-4 md:p-8 h-full overflow-hidden">
-        <h2 className="text-xl font-semibold text-sky-600 mb-4 px-4 hidden md:block">המורה הפרטי שלך</h2>
-      <div className="flex-grow bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden shadow-sm">
+        <h2 className="text-xl font-semibold text-slate-700 mb-4 px-4 hidden md:block">המורה הפרטי שלך</h2>
+      <div className="flex-grow bg-white border border-slate-200 rounded-2xl flex flex-col overflow-hidden shadow-sm">
         <div className="flex-grow p-4 space-y-4 overflow-y-auto">
           {chatSession?.history.map((message, index) => (
             <div key={index} className={`flex items-end gap-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                {message.role === 'model' && (
                 <AIAvatarIcon className="h-8 w-8 flex-shrink-0" />
                )}
-              <div className={`max-w-xs md:max-w-md lg:max-w-2xl rounded-lg px-4 py-2 ${message.role === 'user' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-800'}`}>
+              <div className={`max-w-xs md:max-w-md lg:max-w-2xl rounded-2xl px-4 py-2 ${message.role === 'user' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-800'}`}>
                 <p className="whitespace-pre-wrap">{message.text}</p>
               </div>
               {message.role === 'user' && (
-                <UserIcon className="h-8 w-8 text-slate-500 bg-slate-100 rounded-full p-1.5 flex-shrink-0" />
+                <UserIcon className="h-8 w-8 text-white bg-slate-700 rounded-full p-1.5 flex-shrink-0" />
               )}
             </div>
           ))}
           {isLoading && (
             <div className="flex items-end gap-2 justify-start">
               <AIAvatarIcon className="h-8 w-8 flex-shrink-0" />
-              <div className="max-w-xs md:max-w-md lg:max-w-2xl rounded-lg px-4 py-2 bg-slate-100 text-slate-800">
+              <div className="max-w-xs md:max-w-md lg:max-w-2xl rounded-2xl px-4 py-2 bg-slate-100 text-slate-800">
                 <div className="flex items-center space-x-2">
                     <div className="w-2 h-2 bg-slate-400 rounded-full animate-pulse [animation-delay:-0.3s]"></div>
                     <div className="w-2 h-2 bg-slate-400 rounded-full animate-pulse [animation-delay:-0.15s]"></div>
@@ -81,13 +81,13 @@ const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSe
           <div ref={messagesEndRef} />
         </div>
         <form onSubmit={handleSendMessage} className="p-4 border-t border-slate-200">
-          <div className="flex items-center bg-slate-100 rounded-lg">
+          <div className="flex items-center bg-slate-100 rounded-2xl">
             <input
               type="text"
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
               placeholder="שאל שאלה על המסמך..."
-              className="w-full bg-white px-4 py-3 text-slate-900 focus:outline-none rounded-lg"
+              className="w-full bg-white px-4 py-3 text-slate-900 focus:outline-none rounded-2xl"
               disabled={isLoading || !chatSession}
             />
             <button

@@ -72,14 +72,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, setAppError }) =>
           onDragOver={handleDragOver}
           onDragEnter={handleDragEnter}
           onDragLeave={handleDragLeave}
-          className={`relative block w-full rounded-lg border-2 border-dashed bg-white p-8 sm:p-12 text-center transition-colors duration-300 ${isDragging ? 'border-sky-400 bg-sky-50' : 'border-slate-300 hover:border-sky-400'}`}
+          className={`relative block w-full rounded-2xl border-2 border-dashed bg-white p-8 sm:p-12 text-center transition-colors duration-300 ${isDragging ? 'border-sky-400 bg-sky-50' : 'border-slate-300 hover:border-sky-400'}`}
         >
-          <UploadIcon className="mx-auto h-12 w-12 text-slate-400" />
+          <UploadIcon className="mx-auto h-12 w-12 text-slate-700" />
           <span className="mt-2 block text-sm font-semibold text-slate-700">
             גרור ושחרר קובץ .txt
           </span>
           <span className="text-xs text-slate-500">או</span>
-          <label htmlFor="file-upload" className="relative cursor-pointer rounded-md font-medium text-sky-600 hover:text-sky-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-2 focus-within:ring-offset-white">
+          <label htmlFor="file-upload" className="relative cursor-pointer rounded-xl font-medium text-sky-600 hover:text-sky-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-2 focus-within:ring-offset-white">
             <span> לחץ לבחירה</span>
             <input id="file-upload" name="file-upload" type="file" accept=".txt" className="sr-only" onChange={handleFileChange} />
           </label>
