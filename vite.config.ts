@@ -8,13 +8,14 @@ export default defineConfig({
     host: true,
   },
   optimizeDeps: {
-    include: ['pdfjs-dist'],
+    include: ['pdfjs-dist', 'html2canvas', 'jspdf'],
   },
   build: {
     rollupOptions: {
       output: {
         manualChunks: {
           'pdfjs': ['pdfjs-dist'],
+          'pdf-utils': ['html2canvas', 'jspdf'],
         },
       },
     },
