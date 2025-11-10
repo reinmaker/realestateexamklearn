@@ -40,7 +40,12 @@ const getOpenAI = async (): Promise<OpenAI> => {
     }
     const apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_API_KEY) || null;
     if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is not configured in environment variables');
+      // Provide helpful error message with debugging info
+      const envKeys = typeof import.meta !== 'undefined' ? Object.keys(import.meta.env || {}).filter(k => k.includes('OPENAI') || k.includes('API')) : [];
+      const errorMsg = envKeys.length > 0 
+        ? `OPENAI_API_KEY is not configured. Found env keys: ${envKeys.join(', ')}. Make sure VITE_OPENAI_API_KEY is set in Netlify environment variables and a new build was triggered.`
+        : 'OPENAI_API_KEY is not configured in environment variables. Set VITE_OPENAI_API_KEY in Netlify and trigger a new build.';
+      throw new Error(errorMsg);
     }
     
     if (!openAIClient || openAIKey !== apiKey) {
@@ -81,7 +86,12 @@ const getGemini = async (): Promise<GoogleGenAI> => {
     }
     const apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || null;
     if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is not configured in environment variables');
+      // Provide helpful error message with debugging info
+      const envKeys = typeof import.meta !== 'undefined' ? Object.keys(import.meta.env || {}).filter(k => k.includes('GEMINI') || k.includes('API')) : [];
+      const errorMsg = envKeys.length > 0 
+        ? `GEMINI_API_KEY is not configured. Found env keys: ${envKeys.join(', ')}. Make sure VITE_GEMINI_API_KEY is set in Netlify environment variables and a new build was triggered.`
+        : 'GEMINI_API_KEY is not configured in environment variables. Set VITE_GEMINI_API_KEY in Netlify and trigger a new build.';
+      throw new Error(errorMsg);
     }
     
     if (!geminiClient || geminiKey !== apiKey) {

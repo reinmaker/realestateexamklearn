@@ -34,6 +34,19 @@ export async function getOpenAIKey(): Promise<string | null> {
   const regularKey = typeof import.meta !== 'undefined' ? import.meta.env?.OPENAI_API_KEY : undefined;
   const apiKey = viteKey || regularKey || null;
   
+  // Debug logging (only in development or if key is missing)
+  if (!apiKey && typeof window !== 'undefined') {
+    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isDev) {
+      console.warn('OpenAI API key not found. Checked:', {
+        hasImportMeta: typeof import.meta !== 'undefined',
+        viteKeyExists: !!viteKey,
+        regularKeyExists: !!regularKey,
+        allEnvKeys: typeof import.meta !== 'undefined' ? Object.keys(import.meta.env || {}).filter(k => k.includes('OPENAI') || k.includes('API')) : []
+      });
+    }
+  }
+  
   // Update cache
   if (apiKey) {
     apiKeysCache = {
@@ -65,6 +78,19 @@ export async function getGeminiKey(): Promise<string | null> {
   const viteKey = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_GEMINI_API_KEY : undefined;
   const regularKey = typeof import.meta !== 'undefined' ? import.meta.env?.GEMINI_API_KEY : undefined;
   const apiKey = viteKey || regularKey || null;
+  
+  // Debug logging (only in development or if key is missing)
+  if (!apiKey && typeof window !== 'undefined') {
+    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isDev) {
+      console.warn('Gemini API key not found. Checked:', {
+        hasImportMeta: typeof import.meta !== 'undefined',
+        viteKeyExists: !!viteKey,
+        regularKeyExists: !!regularKey,
+        allEnvKeys: typeof import.meta !== 'undefined' ? Object.keys(import.meta.env || {}).filter(k => k.includes('GEMINI') || k.includes('API')) : []
+      });
+    }
+  }
   
   // Update cache
   if (apiKey) {
