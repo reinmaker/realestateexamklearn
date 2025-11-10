@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Flashcard, FlashcardsProgress } from '../types';
 import { SparklesIcon, LightbulbIcon, SpeakerIcon } from './icons';
 import { generateHint, generateSpeech } from '../services/aiService';
+import { getCachedBookReference, setCachedBookReference, hasCachedBookReference } from '../services/bookReferenceCache';
 
 // Standalone audio decoding functions
 function decode(base64: string) {
@@ -56,6 +57,9 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
   const [isHintLoading, setIsHintLoading] = useState(false);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [showBookReference, setShowBookReference] = useState(false); // State for showing/hiding book reference
+  const [displayBookReference, setDisplayBookReference] = useState<string | null>(null); // Converted book reference for display
+  const [isLoadingBookReference, setIsLoadingBookReference] = useState(false); // State for loading book reference
 
   const [isAudioLoading, setIsAudioLoading] = useState<'question' | 'answer' | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -95,7 +99,66 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
     // When the card changes (e.g., user navigates), reset the transient state like flip and hint.
     setIsFlipped(false);
     setHint(null);
+    setShowBookReference(false); // Reset book reference visibility (but keep the reference in cache)
+    // Don't reset displayBookReference here - let the book reference useEffect handle it with cache
   }, [currentIndex]);
+  
+  // Convert book reference to new format when card changes
+  useEffect(() => {
+    if (!flashcards || flashcards.length === 0 || currentIndex >= flashcards.length) {
+      setDisplayBookReference(null);
+      setIsLoadingBookReference(false);
+      return;
+    }
+    
+    const currentCard = flashcards[currentIndex];
+    const questionKey = currentCard.question; // Use question text as cache key
+    
+    // Check module-level cache first
+    if (hasCachedBookReference(questionKey)) {
+      const cachedRef = getCachedBookReference(questionKey);
+      setDisplayBookReference(cachedRef || null);
+      setIsLoadingBookReference(false);
+      return;
+    }
+    
+    // Reset loading state when card changes (but keep reference if cached)
+    setIsLoadingBookReference(true);
+    setShowBookReference(false);
+    
+    if (currentCard?.bookReference) {
+      const ref = currentCard.bookReference;
+      // Check if it's already new format
+      if (ref.includes('מופיע בעמ') || ref.includes('מתחילות בעמ')) {
+        setDisplayBookReference(ref);
+        setCachedBookReference(questionKey, ref); // Cache it in module-level cache
+        setIsLoadingBookReference(false);
+      } else {
+        // Convert old format to new format
+        import('../services/bookReferenceService').then(({ convertOldFormatToNew }) => {
+          const converted = convertOldFormatToNew(ref, currentCard.question);
+          setDisplayBookReference(converted);
+          setCachedBookReference(questionKey, converted); // Cache it in module-level cache
+          setIsLoadingBookReference(false);
+        });
+      }
+    } else {
+      // Try to generate book reference if missing
+      import('../services/bookReferenceService').then(({ getBookReferenceByAI }) => {
+        getBookReferenceByAI(currentCard.question, undefined, documentContent)
+          .then((generatedRef) => {
+            setDisplayBookReference(generatedRef);
+            setCachedBookReference(questionKey, generatedRef); // Cache it in module-level cache
+            setIsLoadingBookReference(false);
+          })
+          .catch((error) => {
+            console.warn('FlashcardsView: Failed to generate bookReference:', error);
+            setDisplayBookReference(null);
+            setIsLoadingBookReference(false);
+          });
+      });
+    }
+  }, [flashcards, currentIndex, documentContent]);
 
   const handleNext = () => {
     if (!flashcards || flashcards.length === 0) return;
@@ -377,6 +440,73 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                 className="bg-sky-500 h-1.5 rounded-full transition-all duration-300 ease-out"
                 style={{ width: `${progressInDeck}%` }}
             ></div>
+        </div>
+        
+        {/* Book Reference Card - Always Visible */}
+        <div className="w-full max-w-2xl mt-6">
+          <div
+            onClick={() => !isLoadingBookReference && displayBookReference && setShowBookReference(!showBookReference)}
+            className={`bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-2xl shadow-lg transition-all duration-300 ease-in-out overflow-hidden ${
+              isLoadingBookReference 
+                ? 'cursor-wait opacity-75' 
+                : displayBookReference 
+                  ? 'cursor-pointer hover:shadow-xl hover:scale-[1.01] hover:border-blue-300' 
+                  : 'cursor-default opacity-60'
+            } ${
+              showBookReference && displayBookReference
+                ? 'shadow-xl scale-[1.02] border-blue-400' 
+                : ''
+            }`}
+          >
+            <div className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center transition-transform duration-300 ${
+                  showBookReference && displayBookReference ? 'rotate-180' : ''
+                }`}>
+                  {isLoadingBookReference ? (
+                    <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <span className="text-2xl">📖</span>
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-blue-900">הפניה לספר</h3>
+                  {isLoadingBookReference ? (
+                    <p className="text-sm text-blue-600">טוען הפניה...</p>
+                  ) : displayBookReference ? (
+                    <p className="text-sm text-blue-600">לחץ כדי להציג את ההפניה</p>
+                  ) : (
+                    <p className="text-sm text-blue-500">אין הפניה זמינה</p>
+                  )}
+                </div>
+              </div>
+              {displayBookReference && !isLoadingBookReference && (
+                <div className={`transition-transform duration-300 ${showBookReference ? 'rotate-180' : ''}`}>
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              )}
+            </div>
+            
+            {displayBookReference && (
+              <div 
+                className={`transition-all duration-500 ease-in-out ${
+                  showBookReference 
+                    ? 'max-h-96 opacity-100 translate-y-0' 
+                    : 'max-h-0 opacity-0 -translate-y-4'
+                }`}
+              >
+                <div className="px-4 pb-4 border-t border-blue-200 pt-4">
+                  <div className="bg-white rounded-xl p-4 shadow-inner border border-blue-100">
+                    <p className="text-base text-blue-900 leading-relaxed font-medium">
+                      {displayBookReference.replace(/בקובץ\.?/g, '').trim()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
     </div>
   );

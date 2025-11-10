@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, ChatSession } from '../types';
-import { continueChat } from '../services/aiService';
+import { continueChat, createChatSession } from '../services/aiService';
 import { AIAvatarIcon, UserIcon } from './icons';
+import { documentContent } from '../studyMaterial';
 
 interface ChatViewProps {
   setAppError: (error: string | null) => void;
@@ -13,6 +14,7 @@ const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSe
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasInitializedRef = useRef(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -21,10 +23,58 @@ const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSe
   useEffect(() => {
     scrollToBottom();
   }, [chatSession?.history]);
+
+  // Initialize chat session with welcome message if it's null or empty
+  useEffect(() => {
+    if (!hasInitializedRef.current && (!chatSession || chatSession.history.length === 0)) {
+      hasInitializedRef.current = true;
+      // Set a welcome message immediately
+      const welcomeMessage = 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
+      if (!chatSession) {
+        // If chatSession is null, we need to create it first
+        // This will be handled by App.tsx, but we can set a temporary message
+        setChatSession({
+          chat: null as any, // Will be set by App.tsx
+          history: [{ role: 'model', text: welcomeMessage }],
+        });
+      } else {
+        // If chatSession exists but history is empty, add welcome message
+        setChatSession(prev => prev ? { ...prev, history: [{ role: 'model', text: welcomeMessage }] } : null);
+      }
+    }
+  }, [chatSession, setChatSession]);
   
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userInput.trim() || !chatSession || isLoading) return;
+    if (!userInput.trim() || isLoading) return;
+
+    // Ensure chat session is initialized
+    let currentSession = chatSession;
+    if (!currentSession || !currentSession.chat) {
+      setIsLoading(true);
+      setAppError(null);
+      try {
+        const newChat = await createChatSession(documentContent);
+        const welcomeMessage = 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
+        currentSession = {
+          chat: newChat,
+          history: [{ role: 'model', text: welcomeMessage }],
+        };
+        setChatSession(currentSession);
+      } catch (error) {
+        if (error instanceof Error) {
+          setAppError(error.message);
+        } else {
+          setAppError("נכשל באתחול סשן הצ'אט.");
+        }
+        setIsLoading(false);
+        return;
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    if (!currentSession) return;
 
     const newUserMessage: ChatMessage = { role: 'user', text: userInput };
     setChatSession(prev => prev ? { ...prev, history: [...prev.history, newUserMessage] } : null);
@@ -33,7 +83,7 @@ const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSe
     setAppError(null);
 
     try {
-      const modelResponse = await continueChat(chatSession.chat, userInput, chatSession.history);
+      const modelResponse = await continueChat(currentSession.chat, userInput, currentSession.history);
       const modelMessage: ChatMessage = { role: 'model', text: modelResponse };
       setChatSession(prev => prev ? { ...prev, history: [...prev.history, modelMessage] } : null);
     } catch (error) {

@@ -37,14 +37,6 @@ export async function saveUserStats(
   isIncremental: boolean = false
 ): Promise<{ error: Error | null }> {
   try {
-    console.log('saveUserStats called:', {
-      userId,
-      sessionType,
-      score,
-      totalQuestions,
-      correctAnswers
-    });
-    
     // Get current stats or create new
     const { data: existingStats, error: fetchError } = await supabase
       .from('user_stats')
@@ -57,8 +49,6 @@ export async function saveUserStats(
       console.error('Error fetching existing stats:', fetchError);
       return { error: fetchError };
     }
-
-    console.log('Existing stats:', existingStats);
 
     const now = new Date().toISOString();
     const percentage = totalQuestions > 0 ? (correctAnswers / totalQuestions) * 100 : 0;
@@ -89,16 +79,6 @@ export async function saveUserStats(
         ? Math.max(existingStats.best_exam_score || 0, score)
         : (existingStats.best_exam_score || 0);
 
-      console.log('Updating stats:', {
-        newQuizCount,
-        newExamCount,
-        newTotalQuestions,
-        newTotalCorrect,
-        newAverageScore,
-        newBestQuizScore,
-        newBestExamScore
-      });
-
       // First verify user is authenticated
       const { data: { user: authUser } } = await supabase.auth.getUser();
       if (!authUser || authUser.id !== userId) {
@@ -108,16 +88,6 @@ export async function saveUserStats(
         });
         return { error: new Error('User not authenticated') };
       }
-
-      console.log('Attempting to update stats:', {
-        userId,
-        newQuizCount,
-        newExamCount,
-        newTotalQuestions,
-        newTotalCorrect,
-        existingQuizCount: existingStats.quiz_count,
-        existingTotalQuestions: existingStats.total_questions_answered
-      });
 
       // Update the stats - RLS policy now has with_check clause
       const { data: updatedData, error: updateError } = await supabase
@@ -170,7 +140,6 @@ export async function saveUserStats(
                           verifyData.total_correct_answers === newTotalCorrect;
         
         if (wasUpdated) {
-          console.log('Update verified: Stats were successfully updated (no data returned due to RLS)');
           return { error: null };
         } else {
           console.error('Update verification failed: Stats were not updated', {
@@ -185,19 +154,9 @@ export async function saveUserStats(
         }
       }
 
-      console.log('Stats updated successfully:', updatedData);
       return { error: null };
     } else {
       // Create new stats
-      console.log('Creating new stats:', {
-        userId,
-        quiz_count: sessionType === 'quiz' ? 1 : 0,
-        exam_count: sessionType === 'exam' ? 1 : 0,
-        total_questions_answered: totalQuestions,
-        total_correct_answers: correctAnswers,
-        average_score: percentage,
-      });
-
       const { data: insertedData, error: insertError } = await supabase
         .from('user_stats')
         .insert({
@@ -219,7 +178,6 @@ export async function saveUserStats(
         return { error: insertError };
       }
 
-      console.log('Stats created successfully:', insertedData);
       return { error: null };
     }
   } catch (error) {
@@ -240,7 +198,12 @@ export async function saveUserSession(
 ): Promise<{ error: Error | null }> {
   try {
     const totalQuestions = results.length;
-    const correctAnswers = results.filter(r => r.isCorrect).length;
+    // Handle both boolean and string/number formats for isCorrect
+    const correctAnswers = results.filter(r => {
+      const isCorrect = r?.isCorrect;
+      // Check for boolean true, string "true", or 1
+      return isCorrect === true || isCorrect === 'true' || isCorrect === 1 || isCorrect === '1';
+    }).length;
     const percentage = totalQuestions > 0 ? (correctAnswers / totalQuestions) * 100 : 0;
 
     const { error } = await supabase
@@ -254,6 +217,10 @@ export async function saveUserSession(
         total_questions: totalQuestions,
         percentage: percentage,
       });
+
+    if (error) {
+      console.error('Error saving user session:', error);
+    }
 
     return { error: error || null };
   } catch (error) {
@@ -441,17 +408,6 @@ export async function getLatestUserAnalysis(
         }
       }
     }
-
-    console.log('Loaded user analysis:', {
-      quizHistoryCount: quizHistory.length,
-      examHistoryCount: examHistory.length,
-      hasAnalysis: !!analysis.strengths.length || !!analysis.weaknesses.length,
-      sampleQuizItem: quizHistory.length > 0 ? {
-        question: quizHistory[0].question?.substring(0, 30),
-        isCorrect: quizHistory[0].isCorrect,
-        isCorrectType: typeof quizHistory[0].isCorrect
-      } : null
-    });
 
     return { 
       analysis, 

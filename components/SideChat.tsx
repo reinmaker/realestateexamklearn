@@ -23,6 +23,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
   const [isContextual, setIsContextual] = useState(false);
   const [headerTitle, setHeaderTitle] = useState('המורה הפרטי שלך');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasInitializedRef = useRef(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -33,6 +34,31 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
       setCurrentSession(chatSession);
     }
   }, [chatSession, isContextual]);
+
+  // Initialize chat session with welcome message if it's null or empty when first opened
+  useEffect(() => {
+    if (isOpen && !isContextual && !hasInitializedRef.current && (!currentSession || currentSession.history.length === 0)) {
+      hasInitializedRef.current = true;
+      // Set a welcome message immediately
+      const welcomeMessage = userName 
+        ? `היי ${userName}, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?`
+        : 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
+      if (!currentSession) {
+        // If currentSession is null, create a temporary session with welcome message
+        const tempSession: ChatSession = {
+          chat: null as any, // Will be set by App.tsx
+          history: [{ role: 'model', text: welcomeMessage }],
+        };
+        setCurrentSession(tempSession);
+        setChatSession(tempSession);
+      } else {
+        // If currentSession exists but history is empty, add welcome message
+        const updatedSession = { ...currentSession, history: [{ role: 'model', text: welcomeMessage }] };
+        setCurrentSession(updatedSession);
+        setChatSession(updatedSession);
+      }
+    }
+  }, [isOpen, isContextual, currentSession, setChatSession, userName]);
 
   useEffect(() => {
     const initializeExplanationChat = async () => {

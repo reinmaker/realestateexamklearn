@@ -34,7 +34,7 @@ export async function categorizeQuestionByTopic(
       openaiApiKey = await getOpenAIKey();
     } catch (error) {
       // Fallback to environment variable
-      openaiApiKey = process.env.OPENAI_API_KEY || '';
+      openaiApiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_API_KEY) || '';
       if (!openaiApiKey) {
         throw new Error('OPENAI_API_KEY not configured');
       }
@@ -80,7 +80,7 @@ ${documentContent}
       geminiApiKey = await getGeminiKey();
     } catch (error) {
       // Fallback to environment variable
-      geminiApiKey = process.env.GEMINI_API_KEY || '';
+      geminiApiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || '';
       if (!geminiApiKey) {
         throw new Error('GEMINI_API_KEY not configured');
       }
@@ -131,7 +131,7 @@ export async function categorizeQuestionsByTopic(
       openaiApiKey = await getOpenAIKey();
     } catch (error) {
       // Fallback to environment variable
-      openaiApiKey = process.env.OPENAI_API_KEY || '';
+      openaiApiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_API_KEY) || '';
       if (!openaiApiKey) {
         throw new Error('OPENAI_API_KEY not configured');
       }
@@ -231,7 +231,7 @@ ${documentContent}
         geminiApiKey = await getGeminiKey();
       } catch (error) {
         // Fallback to environment variable
-        geminiApiKey = process.env.GEMINI_API_KEY || '';
+        geminiApiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || '';
         if (!geminiApiKey) {
           throw new Error('GEMINI_API_KEY not configured');
         }

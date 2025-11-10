@@ -35,8 +35,6 @@ interface DbQuestion {
 }
 
 async function fixNumericAnswers() {
-  console.log('Starting to fix numeric answers...');
-  
   // Fetch all questions with answers
   const { data: questions, error } = await supabase
     .from('questions')
@@ -51,7 +49,6 @@ async function fixNumericAnswers() {
   }
 
   if (!questions || questions.length === 0) {
-    console.log('No questions to process.');
     return;
   }
 
@@ -67,11 +64,8 @@ async function fixNumericAnswers() {
   });
 
   if (numericAnswerQuestions.length === 0) {
-    console.log('No questions with numeric answers found.');
     return;
   }
-
-  console.log(`Found ${numericAnswerQuestions.length} questions with numeric answers to fix.`);
 
   let processed = 0;
   let failed = 0;
@@ -112,7 +106,6 @@ async function fixNumericAnswers() {
         failed++;
       } else {
         processed++;
-        console.log(`✓ Question ${question.question_number}: Fixed (${question.answer} -> "${correctAnswerText.substring(0, 50)}...")`);
       }
 
       // Add a small delay to avoid rate limiting
@@ -123,18 +116,11 @@ async function fixNumericAnswers() {
       failed++;
     }
   }
-
-  console.log(`\nCompleted!`);
-  console.log(`Processed: ${processed}`);
-  console.log(`Failed: ${failed}`);
-  console.log(`Skipped: ${skipped}`);
-  console.log(`Total: ${numericAnswerQuestions.length}`);
 }
 
 // Run the script
 fixNumericAnswers()
   .then(() => {
-    console.log('Script completed.');
     process.exit(0);
   })
   .catch((error) => {

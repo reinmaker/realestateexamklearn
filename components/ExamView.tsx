@@ -56,7 +56,6 @@ const ExamView: React.FC<ExamViewProps> = ({
           const parsed = JSON.parse(savedState);
           // Check if saved state matches current questions (same count)
           if (parsed.questionsCount === questions.length && parsed.finished) {
-            console.log('Restoring finished exam state from localStorage');
             setExamState('finished');
             setScore(parsed.score || 0);
             setUserAnswers(parsed.userAnswers || []);
@@ -169,7 +168,6 @@ const ExamView: React.FC<ExamViewProps> = ({
           // Check if saved state matches current questions (same count)
           if (parsed.questionsCount === questions.length && parsed.finished) {
             // Restore finished state (in case first useEffect didn't run or didn't complete)
-            console.log('Exam was already finished, restoring finished state');
             setExamState('finished');
             setScore(parsed.score || 0);
             setUserAnswers(parsed.userAnswers || []);
@@ -185,7 +183,6 @@ const ExamView: React.FC<ExamViewProps> = ({
       
       // Only start the exam if user clicked "התחל את המבחן"
       if (userClickedStartRef.current) {
-        console.log('User clicked start, starting exam now that questions are loaded');
         setExamState('running');
         setIsExamInProgress(true);
         setUserAnswers(new Array(questions.length).fill(null));
@@ -196,7 +193,7 @@ const ExamView: React.FC<ExamViewProps> = ({
       }
       // Otherwise, keep showing intro screen until user clicks "התחל את המבחן"
     }
-  }, [questions?.length, examState, totalQuestions, isLoading, setIsExamInProgress]); // Only depend on questions.length, not the full array
+  }, [questions, examState, totalQuestions, isLoading, setIsExamInProgress]); // Include questions in dependencies to trigger when questions are loaded
 
 
   useEffect(() => {
@@ -670,15 +667,6 @@ const ExamView: React.FC<ExamViewProps> = ({
                     <ClockIcon className="h-5 w-5 text-slate-700" />
                     <span className="font-mono text-base">{formatTime(timeLeft)}</span>
                 </div>
-                {examState === 'running' && (
-                  <button
-                    onClick={() => setTimeLeft(10)}
-                    className="px-3 py-1 text-xs font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-xl transition-colors"
-                    title="Set timer to 10 seconds for testing"
-                  >
-                    Test: 10s
-                  </button>
-                )}
                 <div className="text-sm font-medium text-slate-600 flex items-center gap-2">
                     שאלה {currentQuestionIndex + 1} מתוך {totalQuestions}
                      {isLoading && !isFullyLoaded && (

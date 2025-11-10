@@ -9,6 +9,7 @@ interface DbQuestion {
   answer?: string;
   explanation?: string;
   options?: string[]; // Array of 4 options if available
+  book_reference?: string; // Reference to book chapter and page
 }
 
 /**
@@ -18,11 +19,47 @@ export async function fetchQuestionsFromDB(count: number): Promise<DbQuestion[]>
   try {
     // Fetch ALL questions with options from the database to maximize variety
     // This ensures we use the full pool of 730+ questions
-    const { data: allData, error: fetchError } = await supabase
+    // Try to fetch with book_reference first, fallback if column doesn't exist
+    let { data: allData, error: fetchError } = await supabase
       .from('questions')
-      .select('id, question_number, question_text, answer, explanation, options')
+      .select('id, question_number, question_text, answer, explanation, options, book_reference')
       .not('options', 'is', null); // Only get questions with options
       // No limit - fetch all questions for maximum variety
+
+    // If book_reference column doesn't exist, retry without it
+    if (fetchError) {
+      const errorMessage = fetchError.message || '';
+      const errorCode = fetchError.code || '';
+      const httpStatus = (fetchError as any).status || (fetchError as any).statusCode;
+      
+      // Check if this is a "column does not exist" error for book_reference
+      // This can be a 400 Bad Request, 42703 PostgreSQL error, or various error messages
+      const isColumnError = 
+        errorCode === '42703' || 
+        errorCode === 'PGRST116' ||
+        errorMessage.includes('book_reference') || 
+        errorMessage.includes('does not exist') ||
+        (errorMessage.includes('column') && errorMessage.includes('not exist')) ||
+        (errorMessage.toLowerCase().includes('column') && errorMessage.toLowerCase().includes('not exist'));
+      
+      // Only retry on 400 if it's likely a column error (check message)
+      const is400ColumnError = httpStatus === 400 && isColumnError;
+      
+      if (is400ColumnError || isColumnError) {
+        console.warn('book_reference column does not exist or query failed, fetching without it:', {
+          errorCode,
+          httpStatus,
+          message: errorMessage
+        });
+        const retryResult = await supabase
+          .from('questions')
+          .select('id, question_number, question_text, answer, explanation, options')
+          .not('options', 'is', null);
+        
+        allData = retryResult.data;
+        fetchError = retryResult.error;
+      }
+    }
 
     if (fetchError) {
       console.error('Error fetching questions from DB:', fetchError);
@@ -34,8 +71,6 @@ export async function fetchQuestionsFromDB(count: number): Promise<DbQuestion[]>
       return [];
     }
 
-    console.log(`Fetched ${allData.length} total questions from DB`);
-
     // Shuffle all fetched questions using Fisher-Yates algorithm for better randomness
     const shuffled = [...allData];
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -45,8 +80,6 @@ export async function fetchQuestionsFromDB(count: number): Promise<DbQuestion[]>
 
     // Select the requested count from the shuffled pool
     const selected = shuffled.slice(0, Math.min(count, shuffled.length));
-    
-    console.log(`Selected ${selected.length} random questions from ${allData.length} total questions`);
     
     return selected;
   } catch (error) {
@@ -60,12 +93,50 @@ export async function fetchQuestionsFromDB(count: number): Promise<DbQuestion[]>
  */
 export async function fetchQuestionsNeedingAnswers(): Promise<DbQuestion[]> {
   try {
-    const { data, error } = await supabase
+    // Try to fetch with book_reference first, fallback if column doesn't exist
+    let { data, error } = await supabase
       .from('questions')
-      .select('id, question_number, question_text, answer, explanation, options')
+      .select('id, question_number, question_text, answer, explanation, options, book_reference')
       .not('options', 'is', null)
       .or('answer.is.null,explanation.is.null')
       .order('question_number', { ascending: true });
+
+    // If book_reference column doesn't exist, retry without it
+    if (error) {
+      const errorMessage = error.message || '';
+      const errorCode = error.code || '';
+      const httpStatus = (error as any).status || (error as any).statusCode;
+      
+      // Check if this is a "column does not exist" error for book_reference
+      // This can be a 400 Bad Request, 42703 PostgreSQL error, or various error messages
+      const isColumnError = 
+        errorCode === '42703' || 
+        errorCode === 'PGRST116' ||
+        errorMessage.includes('book_reference') || 
+        errorMessage.includes('does not exist') ||
+        (errorMessage.includes('column') && errorMessage.includes('not exist')) ||
+        (errorMessage.toLowerCase().includes('column') && errorMessage.toLowerCase().includes('not exist'));
+      
+      // Only retry on 400 if it's likely a column error (check message)
+      const is400ColumnError = httpStatus === 400 && isColumnError;
+      
+      if (is400ColumnError || isColumnError) {
+        console.warn('book_reference column does not exist or query failed, fetching without it:', {
+          errorCode,
+          httpStatus,
+          message: errorMessage
+        });
+        const retryResult = await supabase
+          .from('questions')
+          .select('id, question_number, question_text, answer, explanation, options')
+          .not('options', 'is', null)
+          .or('answer.is.null,explanation.is.null')
+          .order('question_number', { ascending: true });
+        
+        data = retryResult.data;
+        error = retryResult.error;
+      }
+    }
 
     if (error) {
       console.error('Error fetching questions needing answers:', error);
@@ -111,11 +182,21 @@ export async function convertDbQuestionsToQuizFormat(
           documentContent
         );
 
+        // Convert book reference to new format if it exists and is in old format
+        let bookReference = dbQuestion.book_reference;
+        if (bookReference && !bookReference.includes('מופיע בעמ') && !bookReference.includes('מתחילות בעמ')) {
+          // Import conversion function dynamically
+          const { convertOldFormatToNew } = await import('./bookReferenceService');
+          // Use a helper function to convert - we'll need to export it
+          bookReference = convertOldFormatToNew(bookReference, dbQuestion.question_text);
+        }
+        
         quizQuestions.push({
           question: dbQuestion.question_text,
           options: dbQuestion.options!,
           correctAnswerIndex: result.correctAnswerIndex,
-          explanation: result.explanation
+          explanation: result.explanation,
+          bookReference: bookReference
         });
       } catch (error) {
         console.error(`Error processing question ${dbQuestion.question_number}:`, error);
@@ -224,11 +305,19 @@ export async function getDbQuestionsAsQuiz(
           correctAnswerIndex = 0; // Fallback
         }
 
+        // Convert book reference to new format if it exists and is in old format
+        let bookReference = dbQuestion.book_reference;
+        if (bookReference && !bookReference.includes('מופיע בעמ') && !bookReference.includes('מתחילות בעמ')) {
+          const { convertOldFormatToNew } = await import('./bookReferenceService');
+          bookReference = convertOldFormatToNew(bookReference, dbQuestion.question_text);
+        }
+        
         convertedQuestion = {
           question: dbQuestion.question_text,
           options: shuffledOptions,
           correctAnswerIndex: correctAnswerIndex,
-          explanation: dbQuestion.explanation || 'לא קיים הסבר לשאלה זו.' // Use existing explanation if available, or default message
+          explanation: dbQuestion.explanation || 'לא קיים הסבר לשאלה זו.', // Use existing explanation if available, or default message
+          bookReference: bookReference
         };
 
         allQuizQuestions.push(convertedQuestion);
@@ -246,7 +335,6 @@ export async function getDbQuestionsAsQuiz(
     // If we still don't have enough questions, fetch more
     if (allQuizQuestions.length < count) {
       const remaining = count - allQuizQuestions.length;
-      console.log(`Only got ${allQuizQuestions.length} valid questions, need ${remaining} more. Fetching additional questions...`);
       
       // Fetch more questions to fill the gap
       const additionalCount = remaining * 2; // Fetch 2x to account for skipped ones
@@ -282,8 +370,16 @@ export async function getDbQuestionsAsQuiz(
             continue; // Skip if answer not found
           }
           
+          // Convert book reference to new format if it exists and is in old format
+          let bookReference = dbQuestion.book_reference;
+          if (bookReference && !bookReference.includes('מופיע בעמ') && !bookReference.includes('מתחילות בעמ')) {
+            const { convertOldFormatToNew } = await import('./bookReferenceService');
+            bookReference = convertOldFormatToNew(bookReference, dbQuestion.question_text);
+          }
+          
           const convertedQuestion: QuizQuestion = {
             question: dbQuestion.question_text,
+            bookReference: bookReference,
             options: shuffledOptions,
             correctAnswerIndex: correctAnswerIndex,
             explanation: dbQuestion.explanation || 'לא קיים הסבר לשאלה זו.'

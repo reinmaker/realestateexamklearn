@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { ViewType, QuizResult, QuizQuestion, Flashcard, QuizProgress, ChatSession, AnalysisResult, FlashcardsProgress } from './types';
+import { ViewType, QuizResult, QuizQuestion, Flashcard, QuizProgress, ChatSession, AnalysisResult, FlashcardsProgress, GeneratedQuestion } from './types';
 import Sidebar from './components/Sidebar';
 import HomeView from './components/HomeView';
 import QuizView from './components/QuizView';
@@ -10,6 +10,9 @@ import ChatView from './components/ChatView';
 import ChatWidget from './components/SideChat';
 import LoginView from './components/LoginView';
 import SupportView from './components/SupportView';
+import AdminView from './components/AdminView';
+import GeneratedQuestionsView from './components/GeneratedQuestionsView';
+import { fetchGeneratedQuestions } from './services/generatedQuestionsService';
 import { CloseIcon, MenuIcon } from './components/icons';
 import { documentContent } from './studyMaterial';
 import { generateQuiz, generateFlashcards, createChatSession, generateTargetedFlashcards, generateTargetedQuiz, generateQuizWithTopicDistribution, analyzeProgress } from './services/aiService';
@@ -18,10 +21,12 @@ import { getRandomFlashcards } from './services/flashcardBank';
 import { getCurrentUser, onAuthStateChange, signOut as authSignOut, User } from './services/authService';
 import { saveUserStats, saveUserSession, saveUserAnalysis, getLatestUserAnalysis, getUserStats, UserStats } from './services/userStatsService';
 import { categorizeQuestionsByTopic, calculateTopicProgress, getWeakAndStrongTopics, saveTopicProgress, getTopicProgress } from './services/topicTrackingService';
+import { isAdmin } from './services/adminService';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true); // Track initial auth check
+  const [isAdminUser, setIsAdminUser] = useState(false); // Track admin status
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [appError, setAppError] = useState<string | null>(null);
   const [sideChatContext, setSideChatContext] = useState('');
@@ -32,11 +37,21 @@ const App: React.FC = () => {
   const [isExamInProgress, setIsExamInProgress] = useState(false);
   
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[] | null>(null);
+  const [reinforcementQuizQuestions, setReinforcementQuizQuestions] = useState<QuizQuestion[] | null>(null);
   const [examQuestions, setExamQuestions] = useState<QuizQuestion[] | null>(null);
   const [flashcards, setFlashcards] = useState<Flashcard[] | null>(null);
   const [chatSession, setChatSession] = useState<ChatSession | null>(null);
+  const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
 
   const [quizProgress, setQuizProgress] = useState<QuizProgress>({
+    currentQuestionIndex: 0,
+    selectedAnswer: null,
+    showAnswer: false,
+    score: 0,
+    isFinished: false,
+  });
+
+  const [reinforcementQuizProgress, setReinforcementQuizProgress] = useState<QuizProgress>({
     currentQuestionIndex: 0,
     selectedAnswer: null,
     showAnswer: false,
@@ -51,9 +66,12 @@ const App: React.FC = () => {
   
   const [generationStatus, setGenerationStatus] = useState({
     quiz: { generating: false },
+    'reinforcement-quiz': { generating: false },
     exam: { generating: false },
     flashcards: { generating: false },
   });
+  const targetedQuizAttemptedRef = useRef(false); // Track if targeted quiz was attempted
+  const targetedReinforcementQuizAttemptedRef = useRef(false); // Track if targeted reinforcement quiz was attempted
 
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -70,9 +88,14 @@ const App: React.FC = () => {
   const lastLoadedUserIdRef = useRef<string | null>(null);
   const quizProgressRef = useRef(quizProgress); // Keep ref in sync with quiz progress
   const quizQuestionsRef = useRef(quizQuestions); // Keep ref in sync with quiz questions
+  const reinforcementQuizProgressRef = useRef(reinforcementQuizProgress); // Keep ref in sync with reinforcement quiz progress
+  const reinforcementQuizQuestionsRef = useRef(reinforcementQuizQuestions); // Keep ref in sync with reinforcement quiz questions
   const statsSavedForQuizRef = useRef(false); // Track if stats have been saved for current quiz
+  const statsSavedForReinforcementQuizRef = useRef(false); // Track if stats have been saved for current reinforcement quiz
   const recentlyShownQuestionsRef = useRef<string[]>([]); // Track last 50 questions shown to avoid repeats
   const chatSessionInitializedRef = useRef(false); // Track if chat session has been initialized
+  const isCheckingAdminRef = useRef(false); // Track if admin check is in progress
+  const lastCheckedUserIdRef = useRef<string | null>(null); // Track last checked user ID
   
   // Keep refs in sync with state
   useEffect(() => {
@@ -86,6 +109,14 @@ const App: React.FC = () => {
   useEffect(() => {
     quizQuestionsRef.current = quizQuestions;
   }, [quizQuestions]);
+
+  useEffect(() => {
+    reinforcementQuizProgressRef.current = reinforcementQuizProgress;
+  }, [reinforcementQuizProgress]);
+
+  useEffect(() => {
+    reinforcementQuizQuestionsRef.current = reinforcementQuizQuestions;
+  }, [reinforcementQuizQuestions]);
 
   const fileName = "דיני מתווכים במקרקעין";
   
@@ -249,13 +280,10 @@ const App: React.FC = () => {
             
             // Reload stats to ensure UI is up to date (stats might have been updated by quiz/exam completion)
             // This ensures stats are always current even if analysis and stats save happen in different orders
-            console.log('Analysis completed, reloading stats...');
             await new Promise(resolve => setTimeout(resolve, 100)); // Small delay for DB consistency
             const { stats: updatedStats, error: statsReloadError } = await getUserStats(currentUser.id);
             if (!statsReloadError && updatedStats) {
-              console.log('Reloaded stats from DB after analysis:', updatedStats);
               setUserStats(updatedStats);
-              console.log('Updated userStats state after analysis');
             } else if (statsReloadError) {
               console.error('Error reloading stats after analysis:', statsReloadError);
             } else {
@@ -313,6 +341,18 @@ const App: React.FC = () => {
     statsSavedForQuizRef.current = false;
   };
 
+  const resetReinforcementQuizProgress = () => {
+    setReinforcementQuizProgress({
+        currentQuestionIndex: 0,
+        selectedAnswer: null,
+        showAnswer: false,
+        score: 0,
+        isFinished: false,
+    });
+    // Reset stats saved flag when starting a new reinforcement quiz
+    statsSavedForReinforcementQuizRef.current = false;
+  };
+
   const resetFlashcardsProgress = () => {
     setFlashcardsProgress({
       currentIndex: 0,
@@ -323,72 +363,68 @@ const App: React.FC = () => {
   // Save quiz session when quiz is finished (final save to ensure consistency)
   // Note: Stats are now saved incrementally after each answer, so this is just a final check
   useEffect(() => {
-    if (quizProgress.isFinished && quizQuestions && quizHistory.length > 0 && currentUser && !statsSavedForQuizRef.current) {
-      console.log('Quiz finished, performing final stats save...', {
-        isFinished: quizProgress.isFinished,
-        quizHistoryLength: quizHistory.length,
-        hasUser: !!currentUser
-      });
-      
-      statsSavedForQuizRef.current = true; // Mark as saved to prevent duplicate saves
-      
-      const correctAnswers = quizHistory.filter(r => r.isCorrect).length;
-      const score = correctAnswers;
-      const totalQuestions = quizHistory.length;
-      
-      console.log('Final quiz stats save:', {
-        userId: currentUser.id,
-        sessionType: 'quiz',
-        score,
-        totalQuestions,
-        correctAnswers
-      });
-      
-      // Final stats save to ensure consistency (stats are already saved incrementally)
-      saveUserStats(
-        currentUser.id,
-        'quiz',
-        score,
-        totalQuestions,
-        correctAnswers
-      ).then(async ({ error: statsError }) => {
+    const saveFinalQuizStats = async () => {
+      if (quizProgress.isFinished && quizQuestions && quizHistory.length > 0 && currentUser && !statsSavedForQuizRef.current) {
+        statsSavedForQuizRef.current = true; // Mark as saved to prevent duplicate saves
+        
+        const correctAnswers = quizHistory.filter(r => r.isCorrect).length;
+        const score = correctAnswers;
+        const totalQuestions = quizHistory.length;
+        
+        // Get current stats to calculate cumulative totals
+        const { stats: currentStats } = await getUserStats(currentUser.id);
+        
+        // Calculate cumulative totals (current stats + this quiz)
+        const cumulativeTotalQuestions = (currentStats?.total_questions_answered || 0) + totalQuestions;
+        const cumulativeCorrectAnswers = (currentStats?.total_correct_answers || 0) + correctAnswers;
+        
+        // Final stats save to ensure consistency (stats are already saved incrementally)
+        // Use isIncremental=true to SET the cumulative values, not ADD to them
+        const { error: statsError } = await saveUserStats(
+          currentUser.id,
+          'quiz',
+          score,
+          cumulativeTotalQuestions, // Pass cumulative total, not just this quiz
+          cumulativeCorrectAnswers, // Pass cumulative correct, not just this quiz
+          true // isIncremental - SET cumulative values, don't ADD
+        );
+        
         if (statsError) {
           console.error('Error saving final quiz stats:', statsError);
           statsSavedForQuizRef.current = false; // Reset on error so we can retry
         } else {
-          console.log('Final quiz stats saved successfully, reloading stats...');
           // Add a small delay to ensure database write is complete
           await new Promise(resolve => setTimeout(resolve, 200));
           // Reload stats from database to update UI in real time
           const { stats: updatedStats, error: reloadError } = await getUserStats(currentUser.id);
           if (!reloadError && updatedStats) {
-            console.log('Reloaded stats from DB after quiz completion:', updatedStats);
             setUserStats(updatedStats);
-            console.log('Updated userStats state, should trigger HomeView re-render');
           } else if (reloadError) {
             console.error('Error reloading stats after quiz completion:', reloadError);
           } else {
             console.warn('No stats returned from getUserStats after quiz completion');
           }
         }
-      });
-      
-      // Save session
-      saveUserSession(
-        currentUser.id,
-        'quiz',
-        quizQuestions,
-        quizHistory,
-        score
-      ).then(({ error: sessionError }) => {
+        
+        // Save session
+        const { error: sessionError } = await saveUserSession(
+          currentUser.id,
+          'quiz',
+          quizQuestions,
+          quizHistory,
+          score
+        );
+        
         if (sessionError) {
           console.error('Error saving quiz session:', sessionError);
         }
-      });
-    } else if (!quizProgress.isFinished) {
-      // Reset the flag when quiz is not finished (new quiz started)
-      statsSavedForQuizRef.current = false;
-    }
+      } else if (!quizProgress.isFinished) {
+        // Reset the flag when quiz is not finished (new quiz started)
+        statsSavedForQuizRef.current = false;
+      }
+    };
+    
+    saveFinalQuizStats();
   }, [quizProgress.isFinished, quizQuestions, quizHistory, currentUser]);
 
   // Helper function to add timeout to question generation
@@ -421,7 +457,6 @@ const App: React.FC = () => {
     
     // If quiz is finished, always allow regeneration - reset progress first
     if (isQuizFinished) {
-      console.log('Quiz is finished - allowing regeneration');
     resetQuizProgress();
       // After reset, the ref should be updated, but we explicitly set it to ensure consistency
       quizProgressRef.current = {
@@ -441,7 +476,6 @@ const App: React.FC = () => {
       const userIsActive = currentIndex > 0 || currentSelectedAnswer !== null || currentProgress.showAnswer;
       
       if (userIsActive && quizQuestions && quizQuestions.length > 0) {
-        console.log('User is actively answering - skipping quiz regeneration to preserve current question');
         return;
       }
     }
@@ -463,601 +497,150 @@ const App: React.FC = () => {
           resetQuizProgress();
         }
         
-        // Check if we have enough data to determine weak/strong topics
-        // Need at least 10 questions answered across different topics to have meaningful data
-        const totalQuestionsAnswered = Array.from(topicProgress.values())
-          .reduce((sum, tp) => sum + tp.totalQuestions, 0);
-        const hasEnoughData = totalQuestionsAnswered >= 10 && topicProgress.size >= 3;
+        // Regular quiz uses random questions from database (not AI-generated)
+        // Only the "create specific quiz" button generates questions
+        let dbQuestions: QuizQuestion[] = [];
         
-        console.log('Quiz generation:', {
-          totalQuestionsAnswered,
-          topicCount: topicProgress.size,
-          hasEnoughData,
-          topicProgressMap: Array.from(topicProgress.entries())
-        });
-
-        let dbQuestions: QuizQuestion[] = []; // Quiz always uses AI, never DB
-        let aiQuestions: QuizQuestion[] = [];
-
-        // Quiz always uses AI-generated questions (never DB)
-        // If we have enough data, use topic-based generation (70% weak, 30% strong)
-        // If we don't have enough data, use general AI generation
-        
-        if (!hasEnoughData) {
-          // Not enough data yet - generate all 25 questions using AI (general generation, not topic-based)
-          console.log('Not enough progress data - generating all 25 questions using AI (general)');
+        try {
+          // Fetch random questions from database
+          dbQuestions = await getDbQuestionsAsQuiz(TOTAL_QUESTIONS, documentContent);
           
-          // Generate questions in batches to show progress during generation
-          const batchSize = 5; // Generate 5 questions at a time
-          const totalBatches = Math.ceil(TOTAL_QUESTIONS / batchSize);
-          aiQuestions = [];
-          
-          // Show initial progress
-          const currentProgress = quizProgressRef.current;
-          const currentState = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null;
-          if (!currentState) {
-            setQuizQuestions([]);
-            console.log('Starting AI generation (general) - showing initial progress');
+          if (dbQuestions.length === 0) {
+            console.warn('No questions found in database');
+            setAppError("לא נמצאו שאלות במסד הנתונים. אנא נסה שוב מאוחר יותר.");
+            return;
           }
           
-          for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-            // Check if user started - if so, continue generating but don't update UI progressively
-            // IMPORTANT: Don't break - continue generating all questions in background
-            const progressCheck = quizProgressRef.current;
-            const stateCheck = progressCheck.currentQuestionIndex > 0 || progressCheck.selectedAnswer !== null;
-            if (stateCheck && !userBecameActiveRef.current) {
-              console.log('User started - continuing generation in background without UI updates');
-              userBecameActiveRef.current = true;
-            }
+          // Randomize options for all questions
+          const randomizedQuestions = dbQuestions.map(q => {
+            const correctAnswerText = q.options[q.correctAnswerIndex];
+            const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
+            const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
             
-            const remainingQuestions = TOTAL_QUESTIONS - aiQuestions.length;
-            const questionsInThisBatch = Math.min(batchSize, remainingQuestions);
-            
-            console.log(`Generating batch ${batchIndex + 1}/${totalBatches}: ${questionsInThisBatch} questions`);
-            
-            // Show progress based on batches completed (before generation)
-            const batchProgress = Math.round(((batchIndex + 1) / totalBatches) * 0.9 * 100); // 90% for generation, 10% for finalization
-            if (!stateCheck) {
-              // Show current progress based on questions already generated
-              const currentProgressPercent = Math.round((aiQuestions.length / TOTAL_QUESTIONS) * 100);
-              console.log(`Starting batch ${batchIndex + 1}/${totalBatches}: Current progress ${currentProgressPercent}% (${aiQuestions.length}/${TOTAL_QUESTIONS} questions)`);
-            }
-            
-            let batchQuestions: QuizQuestion[] = [];
-            
-            try {
-              let useDbFallback = false;
-              
-              if (!hasEnoughData) {
-                // Not enough data - generate general AI questions with timeout
-                const result = await generateWithTimeout(
-                  () => generateQuiz(documentContent, questionsInThisBatch),
-                  60000 // 1 minute timeout
-                );
-                
-                if (result === null) {
-                  console.warn(`AI generation timed out after 1 minute for batch ${batchIndex + 1}, falling back to DB`);
-                  useDbFallback = true;
-                } else {
-                  batchQuestions = result;
-                }
-              } else {
-                // Enough data - generate based on weak/strong topics (70% weak, 30% strong)
-                const { weakTopics, strongTopics } = getWeakAndStrongTopics(topicProgress);
-                
-                // Calculate how many questions to generate from weak vs strong topics
-                const weakCount = Math.round(questionsInThisBatch * 0.7);
-                const strongCount = questionsInThisBatch - weakCount;
-                
-                // Generate weak topic questions with timeout
-                if (weakCount > 0 && weakTopics.length > 0) {
-                  const result = await generateWithTimeout(
-                    () => generateTargetedQuiz(weakTopics, documentContent, weakCount),
-                    60000 // 1 minute timeout
-                  );
-                  
-                  if (result === null) {
-                    console.warn(`AI generation timed out for weak topics, falling back to DB`);
-                    useDbFallback = true;
-                  } else {
-                    batchQuestions.push(...result);
-                  }
-                } else if (weakCount > 0) {
-                  const result = await generateWithTimeout(
-                    () => generateQuiz(documentContent, weakCount),
-                    60000 // 1 minute timeout
-                  );
-                  
-                  if (result === null) {
-                    console.warn(`AI generation timed out for weak count, falling back to DB`);
-                    useDbFallback = true;
-                  } else {
-                    batchQuestions.push(...result);
-                  }
-                }
-                
-                // Generate strong topic questions with timeout
-                if (strongCount > 0 && strongTopics.length > 0 && !useDbFallback) {
-                  const result = await generateWithTimeout(
-                    () => generateTargetedQuiz(strongTopics, documentContent, strongCount),
-                    60000 // 1 minute timeout
-                  );
-                  
-                  if (result === null) {
-                    console.warn(`AI generation timed out for strong topics, falling back to DB`);
-                    useDbFallback = true;
-                  } else {
-                    batchQuestions.push(...result);
-                  }
-                } else if (strongCount > 0 && !useDbFallback) {
-                  const result = await generateWithTimeout(
-                    () => generateQuiz(documentContent, strongCount),
-                    60000 // 1 minute timeout
-                  );
-                  
-                  if (result === null) {
-                    console.warn(`AI generation timed out for strong count, falling back to DB`);
-                    useDbFallback = true;
-                  } else {
-                    batchQuestions.push(...result);
-                  }
-                }
-              }
-              
-              // If AI generation timed out, fall back to DB questions
-              if (useDbFallback || batchQuestions.length === 0) {
-                console.log(`Falling back to DB questions for batch ${batchIndex + 1}`);
-                const dbBatch = await getDbQuestionsAsQuiz(questionsInThisBatch, documentContent);
-                if (dbBatch.length > 0) {
-                  batchQuestions = dbBatch;
-                }
-              }
-              
-              // Randomize options for AI-generated questions
-              const randomizedBatch = batchQuestions.map(q => {
-                const correctAnswerText = q.options[q.correctAnswerIndex];
-                const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
-                const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
-                
-                return {
-                  ...q,
-                  options: shuffledOptions,
-                  correctAnswerIndex: correctAnswerIndex !== -1 ? correctAnswerIndex : 0
-                };
-              });
-              
-              aiQuestions.push(...randomizedBatch);
-              
-              // Check current state RIGHT BEFORE updating (user might have started during batch generation)
-              const currentProgressCheck = quizProgressRef.current;
-              const currentStateCheck = currentProgressCheck.currentQuestionIndex > 0 || currentProgressCheck.selectedAnswer !== null;
-              
-              // Get current questions from ref to ensure we have the latest
-              const currentQuizQuestions = quizQuestionsRef.current || [];
-              const existingLength = currentQuizQuestions.length;
-              
-              // Always append new questions to avoid overwriting current question
-              if (aiQuestions.length > existingLength) {
-                // Get only the NEW questions (those beyond what we already have)
-                const newQuestions = aiQuestions.slice(existingLength);
-                
-                // Update ref first
-                quizQuestionsRef.current = [...aiQuestions];
-                
-                // Append new questions to the END of existing questions (preserves current question)
-                setQuizQuestions(prev => {
-                  const prevLength = prev?.length || 0;
-                  if (prevLength < existingLength) {
-                    // State is behind ref, use ref as base
-                    return [...currentQuizQuestions, ...newQuestions];
-                  }
-                  // State is up to date, append new questions
-                  return [...(prev || []), ...newQuestions];
-                });
-                
-                console.log(`Batch ${batchIndex + 1} complete: Added ${newQuestions.length} new questions to end (total: ${aiQuestions.length}/${TOTAL_QUESTIONS})`);
-              } else {
-                // Update ref only (no new questions to add)
-                quizQuestionsRef.current = [...aiQuestions];
-              }
-              
-            } catch (error) {
-              console.error(`Error generating batch ${batchIndex + 1}:`, error);
-              // Continue with next batch even if one fails
-            }
-          }
-          
-          // After all batches are complete, ensure all questions are in the array
-          // Always add questions even if user has started - just don't disrupt their current question
-          if (aiQuestions.length > 0) {
-            const currentQuizQuestions = quizQuestionsRef.current || [];
-            const currentProgress = quizProgressRef.current;
-            const userHasStarted = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null;
-            
-            // If we have more AI questions than currently in state, add them
-            if (currentQuizQuestions.length < aiQuestions.length) {
-              // Always append new questions to avoid overwriting current question
-              const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
-              setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
-              quizQuestionsRef.current = [...aiQuestions];
-              console.log('Final: Added', newQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
-            } else {
-              console.log('Final: All AI questions already added, length:', aiQuestions.length);
-            }
-          }
-        } else {
-          // Enough data - generate ALL questions using AI based on weak/strong topics (25 questions, 70% weak, 30% strong)
-          console.log('Enough progress data - generating ALL questions using AI based on weak/strong topics');
-          
-          // Generate all AI questions based on topic progress - 70% weak, 30% strong
-          const { weakTopics, strongTopics } = getWeakAndStrongTopics(topicProgress);
-          
-          console.log('Topic analysis:', {
-            weakTopics: weakTopics.length,
-            strongTopics: strongTopics.length,
-            weakTopicsList: weakTopics,
-            strongTopicsList: strongTopics
+            return {
+              ...q,
+              options: shuffledOptions,
+              correctAnswerIndex: correctAnswerIndex !== -1 ? correctAnswerIndex : 0
+            };
           });
           
-          // Generate questions in batches to show progress during generation
-          const batchSize = 5; // Generate 5 questions at a time
-          const totalBatches = Math.ceil(TOTAL_QUESTIONS / batchSize);
-          aiQuestions = [];
+          setQuizQuestions(randomizedQuestions);
+          quizQuestionsRef.current = randomizedQuestions;
           
-          // Show initial progress
-          const currentProgress = quizProgressRef.current;
-          const currentState = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null;
-          if (!currentState) {
-            setQuizQuestions([]);
-            console.log('Starting AI generation (topic-based) - showing initial progress');
-          }
+          // Reset targeted quiz flag when regular quiz is successfully generated
+          targetedQuizAttemptedRef.current = false;
           
-          for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-            // Check if user started - if so, continue generating but don't update UI progressively
-            // IMPORTANT: Don't break - continue generating all questions in background
-            const progressCheck = quizProgressRef.current;
-            const stateCheck = progressCheck.currentQuestionIndex > 0 || progressCheck.selectedAnswer !== null;
-            if (stateCheck && !userBecameActiveRef.current) {
-              console.log('User started - continuing generation in background without UI updates');
-              userBecameActiveRef.current = true;
-            }
-            
-            const remainingQuestions = TOTAL_QUESTIONS - aiQuestions.length;
-            const questionsInThisBatch = Math.min(batchSize, remainingQuestions);
-            
-            console.log(`Generating batch ${batchIndex + 1}/${totalBatches}: ${questionsInThisBatch} questions`);
-            
-            if (!stateCheck) {
-              // Show current progress based on questions already generated
-              const currentProgressPercent = Math.round((aiQuestions.length / TOTAL_QUESTIONS) * 100);
-              console.log(`Starting batch ${batchIndex + 1}/${totalBatches}: Current progress ${currentProgressPercent}% (${aiQuestions.length}/${TOTAL_QUESTIONS} questions)`);
-            }
-            
-            let batchQuestions: QuizQuestion[] = [];
-            
-            try {
-              let useDbFallback = false;
-              
-              // Generate based on weak/strong topics (70% weak, 30% strong)
-              // Calculate how many questions to generate from weak vs strong topics
-              const weakCount = Math.round(questionsInThisBatch * 0.7);
-              const strongCount = questionsInThisBatch - weakCount;
-              
-              // Generate weak topic questions with timeout
-              if (weakCount > 0 && weakTopics.length > 0) {
-                const result = await generateWithTimeout(
-                  () => generateTargetedQuiz(weakTopics, documentContent, weakCount),
-                  60000 // 1 minute timeout
-                );
-                
-                if (result === null) {
-                  console.warn(`AI generation timed out for weak topics, falling back to DB`);
-                  useDbFallback = true;
-                } else {
-                  batchQuestions.push(...result);
-                }
-              } else if (weakCount > 0) {
-                const result = await generateWithTimeout(
-                  () => generateQuiz(documentContent, weakCount),
-                  60000 // 1 minute timeout
-                );
-                
-                if (result === null) {
-                  console.warn(`AI generation timed out for weak count, falling back to DB`);
-                  useDbFallback = true;
-                } else {
-                  batchQuestions.push(...result);
-                }
-              }
-              
-              // Generate strong topic questions with timeout
-              if (strongCount > 0 && strongTopics.length > 0 && !useDbFallback) {
-                const result = await generateWithTimeout(
-                  () => generateTargetedQuiz(strongTopics, documentContent, strongCount),
-                  60000 // 1 minute timeout
-                );
-                
-                if (result === null) {
-                  console.warn(`AI generation timed out for strong topics, falling back to DB`);
-                  useDbFallback = true;
-                } else {
-                  batchQuestions.push(...result);
-                }
-              } else if (strongCount > 0 && !useDbFallback) {
-                const result = await generateWithTimeout(
-                  () => generateQuiz(documentContent, strongCount),
-                  60000 // 1 minute timeout
-                );
-                
-                if (result === null) {
-                  console.warn(`AI generation timed out for strong count, falling back to DB`);
-                  useDbFallback = true;
-                } else {
-                  batchQuestions.push(...result);
-                }
-              }
-              
-              // If AI generation timed out, fall back to DB questions
-              if (useDbFallback || batchQuestions.length === 0) {
-                console.log(`Falling back to DB questions for batch ${batchIndex + 1}`);
-                const dbBatch = await getDbQuestionsAsQuiz(questionsInThisBatch, documentContent);
-                if (dbBatch.length > 0) {
-                  batchQuestions = dbBatch;
-                }
-              }
-              
-              // Randomize options for AI-generated questions
-              const randomizedBatch = batchQuestions.map(q => {
-                const correctAnswerText = q.options[q.correctAnswerIndex];
-                const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
-                const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
-                
-                return {
-                  ...q,
-                  options: shuffledOptions,
-                  correctAnswerIndex: correctAnswerIndex !== -1 ? correctAnswerIndex : 0
-                };
-              });
-              
-              aiQuestions.push(...randomizedBatch);
-              
-              // Check current state RIGHT BEFORE updating (user might have started during batch generation)
-              const currentProgressCheck = quizProgressRef.current;
-              const currentStateCheck = currentProgressCheck.currentQuestionIndex > 0 || currentProgressCheck.selectedAnswer !== null;
-              
-              // Get current questions from ref to ensure we have the latest
-              const currentQuizQuestions = quizQuestionsRef.current || [];
-              const existingLength = currentQuizQuestions.length;
-              
-              // Always append new questions to avoid overwriting current question
-              if (aiQuestions.length > existingLength) {
-                // Get only the NEW questions (those beyond what we already have)
-                const newQuestions = aiQuestions.slice(existingLength);
-                
-                // Update ref first
-                quizQuestionsRef.current = [...aiQuestions];
-                
-                // Append new questions to the END of existing questions (preserves current question)
-                setQuizQuestions(prev => {
-                  const prevLength = prev?.length || 0;
-                  if (prevLength < existingLength) {
-                    // State is behind ref, use ref as base
-                    return [...currentQuizQuestions, ...newQuestions];
-                  }
-                  // State is up to date, append new questions
-                  return [...(prev || []), ...newQuestions];
-                });
-                
-                console.log(`Batch ${batchIndex + 1} complete: Added ${newQuestions.length} new questions to end (total: ${aiQuestions.length}/${TOTAL_QUESTIONS})`);
-              } else {
-                // Update ref only (no new questions to add)
-                quizQuestionsRef.current = [...aiQuestions];
-              }
-              
-            } catch (error) {
-              console.error(`Error generating batch ${batchIndex + 1}:`, error);
-              // Continue with next batch even if one fails
-            }
-          }
-          
-          // After all batches are complete, ensure all questions are in the array
-          if (aiQuestions.length > 0) {
-            const currentQuizQuestions = quizQuestionsRef.current || [];
-            const currentProgress = quizProgressRef.current;
-            const userHasStarted = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null;
-            
-            // If we have more AI questions than currently in state, add them
-            if (currentQuizQuestions.length < aiQuestions.length) {
-              // Always append new questions to avoid overwriting current question
-              const newQuestions = aiQuestions.slice(currentQuizQuestions.length);
-              setQuizQuestions(prev => [...(prev || []), ...newQuestions]);
-              quizQuestionsRef.current = [...aiQuestions];
-              console.log('Final: Added', newQuestions.length, 'new questions to end (total:', aiQuestions.length, ')');
-            } else {
-              console.log('Final: All AI questions already added, length:', aiQuestions.length);
-            }
-          }
+        } catch (error) {
+          console.error('Error fetching questions from database:', error);
+          if (error instanceof Error) setAppError(error.message);
+          else setAppError("נכשל בטעינת שאלות מהמסד נתונים.");
+        } finally {
+          setGenerationStatus(prev => ({ ...prev, quiz: { generating: false } }));
         }
         
-        // Quiz always uses AI questions only (never DB) - deduplicate and finalize
-        let finalAiQuestions = aiQuestions;
-        let finalDbQuestions: QuizQuestion[] = []; // Quiz never uses DB questions
-        
-        // Since quiz always uses AI, we skip DB+AI combination logic
-        if (false && aiQuestions.length > 0 && dbQuestions.length > 0) {
-          // CRITICAL: Deduplicate questions before combining
-          // Remove AI questions that are too similar to DB questions
-          const dbQuestionTexts = new Set(dbQuestions.map(q => q.question.toLowerCase().trim()));
-          const uniqueAiQuestions = aiQuestions.filter(aiQ => {
-            const aiText = aiQ.question.toLowerCase().trim();
-            // Check if AI question is too similar to any DB question
-            // Compare first 50 characters to catch similar questions
-            const aiPrefix = aiText.substring(0, 50);
-            return !Array.from(dbQuestionTexts).some(dbText => {
-              const dbPrefix = dbText.substring(0, 50);
-              // If questions share significant overlap, consider them duplicates
-              return aiPrefix === dbPrefix || 
-                     (aiText.includes(dbPrefix) || dbText.includes(aiPrefix)) ||
-                     // Also check if questions are very similar (80% overlap)
-                     (aiText.length > 20 && dbText.length > 20 && 
-                      (aiText.length < dbText.length * 1.2 && dbText.length < aiText.length * 1.2) &&
-                      calculateSimilarity(aiText, dbText) > 0.8);
-            });
-          });
-          
-          // If we lost some AI questions due to deduplication, generate more if needed
-          finalAiQuestions = uniqueAiQuestions;
-          if (uniqueAiQuestions.length < aiQuestions.length && hasEnoughData) {
-            const needed = aiQuestions.length - uniqueAiQuestions.length;
-            console.log(`Generating ${needed} additional unique AI questions to replace duplicates`);
-            try {
-              const { weakTopics, strongTopics } = getWeakAndStrongTopics(topicProgress);
-              let additionalQuestions: QuizQuestion[];
-              if (weakTopics.length > 0 || strongTopics.length > 0) {
-                additionalQuestions = await generateQuizWithTopicDistribution(
-                  weakTopics,
-                  strongTopics,
-                  documentContent,
-                  needed
-                );
-              } else {
-                additionalQuestions = await generateQuiz(documentContent, needed);
-              }
-              
-              // Deduplicate additional questions too
-              const allExistingTexts = new Set([
-                ...dbQuestionTexts,
-                ...uniqueAiQuestions.map(q => q.question.toLowerCase().trim())
-              ]);
-              const uniqueAdditional = additionalQuestions.filter(q => {
-                const qText = q.question.toLowerCase().trim();
-                return !Array.from(allExistingTexts).some(existing => {
-                  const qPrefix = qText.substring(0, 50);
-                  const existingPrefix = existing.substring(0, 50);
-                  return qPrefix === existingPrefix || 
-                         (qText.includes(existingPrefix) || existing.includes(qPrefix)) ||
-                         (qText.length > 20 && existing.length > 20 && 
-                          (qText.length < existing.length * 1.2 && existing.length < qText.length * 1.2) &&
-                          calculateSimilarity(qText, existing) > 0.8);
-                });
-              });
-              
-              finalAiQuestions = [...uniqueAiQuestions, ...uniqueAdditional.slice(0, needed)];
-            } catch (error) {
-              console.error('Error generating additional unique questions:', error);
-              // Use what we have if generation fails
-            }
-          }
-        } else if (aiQuestions.length > 0) {
-          // Quiz always uses AI questions - deduplicate among themselves
-          finalAiQuestions = deduplicateQuestions(aiQuestions);
-          
-          // If we lost some questions due to deduplication, generate more if needed
-          if (finalAiQuestions.length < TOTAL_QUESTIONS) {
-            const needed = TOTAL_QUESTIONS - finalAiQuestions.length;
-            console.log(`Generating ${needed} additional unique AI questions to reach ${TOTAL_QUESTIONS}`);
-            try {
-              let additionalQuestions: QuizQuestion[];
-              if (hasEnoughData) {
-                // Use topic-based generation
-                const { weakTopics, strongTopics } = getWeakAndStrongTopics(topicProgress);
-                if (weakTopics.length > 0 || strongTopics.length > 0) {
-                  additionalQuestions = await generateQuizWithTopicDistribution(
-                    weakTopics,
-                    strongTopics,
-                    documentContent,
-                    needed
-                  );
-                } else {
-                  additionalQuestions = await generateQuiz(documentContent, needed);
-                }
-              } else {
-                // Use general generation
-                additionalQuestions = await generateQuiz(documentContent, needed);
-              }
-              
-              // Randomize options for additional questions
-              const randomizedAdditional = additionalQuestions.map(q => {
-                const correctAnswerText = q.options[q.correctAnswerIndex];
-                const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
-                const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
-                
-                return {
-                  ...q,
-                  options: shuffledOptions,
-                  correctAnswerIndex: correctAnswerIndex !== -1 ? correctAnswerIndex : 0
-                };
-              });
-              
-              // Deduplicate additional questions against existing ones
-              const existingTexts = new Set(finalAiQuestions.map(q => q.question.toLowerCase().trim()));
-              const uniqueAdditional = randomizedAdditional.filter(addQ => {
-                const addText = addQ.question.toLowerCase().trim();
-                return !Array.from(existingTexts).some(existingText => {
-                  const existingPrefix = existingText.substring(0, 50);
-                  const addPrefix = addText.substring(0, 50);
-                  return existingPrefix === addPrefix || 
-                         (addText.includes(existingPrefix) || existingText.includes(addPrefix)) ||
-                         (addText.length > 20 && existingText.length > 20 && 
-                          (addText.length < existingText.length * 1.2 && existingText.length < addText.length * 1.2) &&
-                          calculateSimilarity(addText, existingText) > 0.8);
-                });
-              });
-              
-              finalAiQuestions = [...finalAiQuestions, ...uniqueAdditional.slice(0, needed)];
-            } catch (error) {
-              console.error('Error generating additional unique questions:', error);
-              // Use what we have if generation fails
-            }
-          }
-        }
-        
-        // Combine and set final questions - quiz always uses AI only
-        const currentQuestions = quizQuestionsRef.current;
-        const currentProgress = quizProgressRef.current;
-        const currentStateAfterGeneration = currentProgress.currentQuestionIndex > 0 || currentProgress.selectedAnswer !== null || userBecameActiveRef.current;
-        
-        // All questions are AI-generated (quiz never uses DB)
-        const allQuestions = [...finalAiQuestions];
-        
-        console.log('Final AI questions count:', allQuestions.length, 'Target:', TOTAL_QUESTIONS);
-        
-        // Deduplicate and shuffle
-        const uniqueQuestions = deduplicateQuestions(allQuestions);
-        console.log('After deduplication:', uniqueQuestions.length, 'questions');
-        
-        const shuffledAllQuestions = [...uniqueQuestions].sort(() => Math.random() - 0.5);
-        
-        // Ensure we have exactly TOTAL_QUESTIONS (or as many as possible)
-        const finalQuestions = shuffledAllQuestions.slice(0, TOTAL_QUESTIONS);
-        
-        console.log('Final questions to set:', finalQuestions.length, 'Target:', TOTAL_QUESTIONS);
-        
-        // Check if we already have all questions in state
-        const hasAllQuestions = currentQuestions && currentQuestions.length >= TOTAL_QUESTIONS;
-        
-        // Always ensure all questions are in the array, even if user has started
-        if (finalQuestions.length >= TOTAL_QUESTIONS) {
-          // We have all 25 questions - always add them
-          console.log('All', TOTAL_QUESTIONS, 'questions ready - setting quiz questions');
-          setQuizQuestions(finalQuestions);
-          quizQuestionsRef.current = finalQuestions;
-        } else if (finalQuestions.length > 0) {
-          // We don't have all 25 questions yet - add what we have
-          console.warn('Warning: Only generated', finalQuestions.length, 'out of', TOTAL_QUESTIONS, 'questions');
-          setQuizQuestions(finalQuestions);
-          quizQuestionsRef.current = finalQuestions;
-        } else {
-          console.error('Error: No questions generated!');
-        }
-
     } catch (error) {
         if (error instanceof Error) setAppError(error.message);
         else setAppError("נכשל ביצירת שאר שאלות הבוחן.");
     } finally {
         setGenerationStatus(prev => ({ ...prev, quiz: { ...prev.quiz, generating: false } }));
     }
-  }, [documentContent, topicProgress]); // Removed quizProgress and quizQuestions to prevent excessive re-renders
+  }, [documentContent]); // Removed topicProgress to prevent excessive re-renders
+
+  const regenerateReinforcementQuiz = useCallback(async () => {
+    // CRITICAL: Don't regenerate if user is actively answering a question
+    // This prevents disrupting their current question
+    // EXCEPTION: If quiz is finished, always allow regeneration (user clicked "עשה בוחן נוסף")
+    // Use refs to get the most current values
+    const currentProgress = reinforcementQuizProgressRef.current;
+    const currentIndex = currentProgress.currentQuestionIndex;
+    const currentSelectedAnswer = currentProgress.selectedAnswer;
+    const isQuizFinished = currentProgress.isFinished;
+    
+    // If quiz is finished, always allow regeneration - reset progress first
+    if (isQuizFinished) {
+      resetReinforcementQuizProgress();
+      // After reset, the ref should be updated, but we explicitly set it to ensure consistency
+      reinforcementQuizProgressRef.current = {
+        currentQuestionIndex: 0,
+        selectedAnswer: null,
+        showAnswer: false,
+        score: 0,
+        isFinished: false,
+      };
+      // Reset chat history when starting a new quiz
+      if (chatSession) {
+        setChatSession(prev => prev ? { ...prev, history: [] } : null);
+      }
+      // Continue with regeneration below
+    } else {
+      // Quiz is not finished - check if user is actively answering
+      const userIsActive = currentIndex > 0 || currentSelectedAnswer !== null || currentProgress.showAnswer;
+      
+      if (userIsActive && reinforcementQuizQuestions && reinforcementQuizQuestions.length > 0) {
+        return;
+      }
+    }
+    
+    // Capture the initial state - user should not have started when we begin
+    // After reset, this should be 0 and null
+    const resetProgress = reinforcementQuizProgressRef.current;
+    const userHasStartedAtStart = resetProgress.currentQuestionIndex > 0 || resetProgress.selectedAnswer !== null;
+    
+    setGenerationStatus(prev => ({ ...prev, 'reinforcement-quiz': { generating: true } }));
+    setAppError(null);
+
+    try {
+        // Only reset progress if user hasn't started yet
+        if (!userHasStartedAtStart) {
+          resetReinforcementQuizProgress();
+        }
+        
+        // Reinforcement quiz always uses AI generation
+        setGenerationStatus(prev => ({ ...prev, 'reinforcement-quiz': { generating: true } }));
+        setAppError(null);
+        
+        try {
+          // Generate questions using AI
+          const aiQuestions = await generateQuiz(undefined, TOTAL_QUESTIONS);
+          
+          if (!aiQuestions || aiQuestions.length === 0) {
+            throw new Error('No questions generated');
+          }
+          
+          // Randomize options for all questions
+          const randomizedQuestions = aiQuestions.map(q => {
+            const correctAnswerText = q.options[q.correctAnswerIndex];
+            const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
+            const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
+            
+            return {
+              ...q,
+              options: shuffledOptions,
+              correctAnswerIndex: correctAnswerIndex !== -1 ? correctAnswerIndex : 0
+            };
+          });
+          
+          setReinforcementQuizQuestions(randomizedQuestions);
+          reinforcementQuizQuestionsRef.current = randomizedQuestions;
+          
+          // Reset targeted quiz flag when reinforcement quiz is successfully generated
+          targetedReinforcementQuizAttemptedRef.current = false;
+          
+        } catch (error) {
+          console.error('Error generating reinforcement quiz questions:', error);
+          if (error instanceof Error) setAppError(error.message);
+          else setAppError("נכשל ביצירת שאלות הבוחן.");
+        } finally {
+          setGenerationStatus(prev => ({ ...prev, 'reinforcement-quiz': { generating: false } }));
+        }
+        
+    } catch (error) {
+        if (error instanceof Error) setAppError(error.message);
+        else setAppError("נכשל ביצירת שאר שאלות הבוחן.");
+    } finally {
+        setGenerationStatus(prev => ({ ...prev, 'reinforcement-quiz': { ...prev['reinforcement-quiz'], generating: false } }));
+    }
+  }, [documentContent, chatSession]);
   
   // Helper function to calculate similarity between two strings
   const calculateSimilarity = (str1: string, str2: string): number => {
@@ -1148,106 +731,92 @@ const App: React.FC = () => {
       recentlyShown.splice(index, 1);
     }
     
-    // Add to the beginning
+    // Add to the beginning of the list
     recentlyShown.unshift(normalized);
     
-    // Keep only last 50 questions
+    // Keep only the last 50 questions
     if (recentlyShown.length > 50) {
       recentlyShown.splice(50);
     }
-    
-    recentlyShownQuestionsRef.current = recentlyShown;
   };
   
   const regenerateFlashcards = useCallback(async () => {
-      setGenerationStatus(prev => ({ ...prev, flashcards: { generating: true } }));
-      resetFlashcardsProgress();
-
-      setAppError(null);
-      try {
-          // Flashcards always use DB questions - convert quiz questions to flashcards
-          console.log('Generating flashcards - using DB questions');
-          
-          // Fetch DB questions and convert them to flashcards
-          const dbQuestions = await getDbQuestionsAsQuiz(TOTAL_FLASHCARDS, documentContent);
-          
-          // Convert quiz questions to flashcards format
-          // Use the question text as the flashcard question
-          // Use the explanation or correct answer text as the flashcard answer
-          const dbFlashcards: Flashcard[] = dbQuestions.map(q => {
-            // Use explanation if available, otherwise use the correct answer text
-            const answer = q.explanation && q.explanation.trim() 
-              ? q.explanation 
-              : q.options[q.correctAnswerIndex] || 'לא צוין הסבר';
-            
-            return {
-              question: q.question,
-              answer: answer
-            };
-          });
-          
-          // Shuffle flashcards for variety
-          const shuffledFlashcards = [...dbFlashcards].sort(() => Math.random() - 0.5);
-          
-          // Set the shuffled flashcards
-          setFlashcards(shuffledFlashcards);
-      } catch (error) {
-          if (error instanceof Error) setAppError(error.message);
-          else setAppError("נכשל ביצירת כרטיסיות.");
-      } finally {
-          setGenerationStatus(prev => ({ ...prev, flashcards: { ...prev.flashcards, generating: false } }));
+    setGenerationStatus(prev => ({ ...prev, flashcards: { generating: true } }));
+    setAppError(null);
+    
+    try {
+      // Regular flashcards use DB questions (same as regular quiz)
+      // Only the "create specific flashcards" button generates questions with AI
+      const dbQuestions = await getDbQuestionsAsQuiz(TOTAL_FLASHCARDS, documentContent);
+      
+      if (dbQuestions.length === 0) {
+        console.warn('No questions found in database, falling back to AI generation');
+        // Fallback to AI if no DB questions available
+        const aiFlashcards = await generateFlashcards(documentContent, TOTAL_FLASHCARDS);
+        setFlashcards(aiFlashcards);
+        return;
       }
+      
+      // Convert quiz questions to flashcards format
+      const dbFlashcards: Flashcard[] = dbQuestions.map(q => {
+        // Use explanation if available, otherwise use the correct answer text
+        const answer = q.explanation && q.explanation.trim() 
+          ? q.explanation 
+          : q.options[q.correctAnswerIndex] || 'לא צוין הסבר';
+        
+        return {
+          question: q.question,
+          answer: answer,
+          bookReference: q.bookReference // Preserve book reference if available
+        };
+      });
+      
+      // Shuffle flashcards for variety
+      const shuffledFlashcards = [...dbFlashcards].sort(() => Math.random() - 0.5);
+      setFlashcards(shuffledFlashcards);
+    } catch (error) {
+      if (error instanceof Error) setAppError(error.message);
+      else setAppError("נכשל ביצירת כרטיסיות.");
+    } finally {
+      setGenerationStatus(prev => ({ ...prev, flashcards: { ...prev.flashcards, generating: false } }));
+    }
   }, [documentContent]);
   
   const regenerateExam = useCallback(async () => {
-    console.log('regenerateExam called - starting exam generation');
     setGenerationStatus(prev => ({ ...prev, exam: { generating: true } }));
 
     setAppError(null);
-    setIsExamInProgress(false);
-    setExamHistory([]);
-    // Note: Exam progress is managed in ExamView component, not here
-
     try {
-        // Exam always uses all DB questions (no AI generation)
-        // This ensures a random mix from the full pool of 730+ questions
-        console.log('Generating exam - fetching random mix from full DB pool');
-        const dbQuestions = await getDbQuestionsAsQuiz(
-          TOTAL_QUESTIONS, 
-          documentContent
-        );
+      // Exam uses random questions from database (not AI-generated)
+      const dbQuestions = await getDbQuestionsAsQuiz(TOTAL_QUESTIONS, documentContent);
+      
+      if (dbQuestions.length === 0) {
+        setAppError("לא נמצאו שאלות במסד הנתונים. אנא נסה שוב מאוחר יותר.");
+        return;
+      }
+      
+      // Randomize options for all questions
+      const randomizedQuestions = dbQuestions.map(q => {
+        const correctAnswerText = q.options[q.correctAnswerIndex];
+        const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
+        const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
         
-        console.log(`Fetched ${dbQuestions.length} questions from DB for exam`);
-        
-        if (dbQuestions.length === 0) {
-          console.error('No questions fetched from database for exam');
-          setAppError("לא נמצאו שאלות במסד הנתונים. אנא נסה שוב מאוחר יותר.");
-          setGenerationStatus(prev => ({ ...prev, exam: { generating: false } }));
-          return;
-        }
-        
-        if (dbQuestions.length < TOTAL_QUESTIONS) {
-          console.warn(`Only fetched ${dbQuestions.length} questions, expected ${TOTAL_QUESTIONS}`);
-        }
-        
-        // Shuffle the questions again (they're already randomized by fetchQuestionsFromDB, but shuffle again for extra randomness)
-        const shuffledAllQuestions = [...dbQuestions].sort(() => Math.random() - 0.5);
-        
-        // Set the final shuffled questions
-        setExamQuestions(shuffledAllQuestions);
-        console.log(`Exam generated successfully with ${shuffledAllQuestions.length} questions from database`);
-
+        return {
+          ...q,
+          options: shuffledOptions,
+          correctAnswerIndex: correctAnswerIndex !== -1 ? correctAnswerIndex : 0
+        };
+      });
+      
+      setExamQuestions(randomizedQuestions);
     } catch (error) {
-        console.error('Error generating exam:', error);
-        if (error instanceof Error) {
-          setAppError(error.message);
-          console.error('Exam generation error details:', error);
-        } else {
-          setAppError("נכשל ביצירת שאלות המבחן. אנא נסה שוב.");
-        }
+      if (error instanceof Error) {
+        setAppError(error.message);
+      } else {
+        setAppError("נכשל בטעינת שאלות מהמסד נתונים.");
+      }
     } finally {
-        setGenerationStatus(prev => ({ ...prev, exam: { generating: false } }));
-        console.log('regenerateExam completed - generation status set to false');
+      setGenerationStatus(prev => ({ ...prev, exam: { generating: false } }));
     }
   }, [documentContent]);
 
@@ -1283,6 +852,39 @@ const App: React.FC = () => {
   };
 
   // Check for existing session on mount and listen to auth state changes
+  // Check admin status when user changes (with guard to prevent loops)
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      // Prevent multiple simultaneous checks
+      if (isCheckingAdminRef.current) {
+        return;
+      }
+      
+      // Skip if we already checked this user
+      if (currentUser && lastCheckedUserIdRef.current === currentUser.id) {
+        return;
+      }
+      
+      if (currentUser) {
+        isCheckingAdminRef.current = true;
+        lastCheckedUserIdRef.current = currentUser.id;
+        try {
+          const adminStatus = await isAdmin(currentUser.id);
+          setIsAdminUser(adminStatus);
+        } catch (error) {
+          console.error('Error checking admin status:', error);
+          setIsAdminUser(false);
+        } finally {
+          isCheckingAdminRef.current = false;
+        }
+      } else {
+        setIsAdminUser(false);
+        lastCheckedUserIdRef.current = null;
+      }
+    };
+    checkAdminStatus();
+  }, [currentUser]);
+
   useEffect(() => {
     let isInitialized = false;
     let currentUserForInit: User | null = null;
@@ -1296,8 +898,13 @@ const App: React.FC = () => {
         if (!flashcards) {
           regenerateFlashcards();
         }
-        if (!quizQuestions) {
+        // Only regenerate if not already generating and no targeted quiz was attempted
+        // This prevents triggering regenerateQuiz() when targeted quiz generation fails
+        if (!quizQuestions && !generationStatus.quiz.generating && !targetedQuizAttemptedRef.current) {
           regenerateQuiz();
+        }
+        if (!reinforcementQuizQuestions && !generationStatus['reinforcement-quiz'].generating && !targetedReinforcementQuizAttemptedRef.current) {
+          regenerateReinforcementQuiz();
         }
         if (!examQuestions) {
           regenerateExam();
@@ -1335,7 +942,6 @@ const App: React.FC = () => {
         
         if (hasOAuthParams) {
           // OAuth callback detected - wait longer for Supabase to process hash fragments
-          console.log('OAuth callback detected, waiting for Supabase to process...');
           // Wait longer for hash fragment processing
           await new Promise(resolve => setTimeout(resolve, 1000));
           
@@ -1351,7 +957,6 @@ const App: React.FC = () => {
         for (let i = 0; i < 5; i++) {
           user = await getCurrentUser();
           if (user) {
-            console.log('User found on attempt', i + 1);
             break;
           }
           // Wait a bit before retrying (longer waits for OAuth)
@@ -1362,7 +967,6 @@ const App: React.FC = () => {
         }
         
         if (user) {
-          console.log('Setting user from initial session check');
           setCurrentUser(user);
           // Initialize app state for initial session
           const isNewUserSession = lastLoadedUserIdRef.current !== user.id;
@@ -1398,8 +1002,6 @@ const App: React.FC = () => {
             isLoadingUserDataRef.current = false;
           }
           await initializeAppState(user);
-        } else {
-          console.log('No user found after initial session check');
         }
       } catch (error) {
         console.error('Error checking initial session:', error);
@@ -1413,11 +1015,8 @@ const App: React.FC = () => {
 
     // Listen to auth state changes (this will handle both initial load and subsequent changes)
     const { data: { subscription } } = onAuthStateChange(async (user) => {
-      console.log('Auth state change event:', user ? 'User logged in' : 'User logged out');
-      
       if (user) {
         // User found - always update
-        console.log('User found via auth state change');
         setCurrentUser(user);
         setIsCheckingAuth(false);
         
@@ -1540,14 +1139,6 @@ const App: React.FC = () => {
         const totalQuestions = currentHistory.length;
         const score = correctAnswers;
         
-        console.log('Updating stats incrementally after answer:', {
-          userId: currentUser.id,
-          isCorrect: result.isCorrect,
-          correctAnswers,
-          totalQuestions,
-          score
-        });
-        
         // Save stats incrementally (add 1 question, add 1 correct/incorrect)
         // Pass isIncremental=true to prevent quiz_count from incrementing
         const { error: statsError } = await saveUserStats(
@@ -1562,15 +1153,12 @@ const App: React.FC = () => {
         if (statsError) {
           console.error('Error saving incremental stats:', statsError);
         } else {
-          console.log('Incremental stats saved successfully, reloading stats...');
           // Add a small delay to ensure database write is complete
           await new Promise(resolve => setTimeout(resolve, 200));
           // Reload stats from database to update UI in real time
           const { stats: updatedStats, error: reloadError } = await getUserStats(currentUser.id);
           if (!reloadError && updatedStats) {
-            console.log('Reloaded stats from DB after answer:', updatedStats);
             setUserStats(updatedStats);
-            console.log('Updated userStats state, should trigger HomeView re-render');
           } else if (reloadError) {
             console.error('Error reloading stats after answer:', reloadError);
           }
@@ -1599,7 +1187,6 @@ const App: React.FC = () => {
       const userName = currentUser?.name || currentUser?.email?.split('@')[0] || undefined;
       const examSpecificAnalysis = await analyzeProgress(results, documentContent, userName);
       setExamAnalysis(examSpecificAnalysis);
-      console.log('Exam-specific analysis generated:', examSpecificAnalysis);
     } catch (error) {
       console.error('Error generating exam-specific analysis:', error);
       setExamAnalysis(null);
@@ -1624,15 +1211,12 @@ const App: React.FC = () => {
       if (statsError) {
         console.error('Error saving exam stats:', statsError);
       } else {
-        console.log('Exam stats saved successfully, reloading stats...');
         // Add a small delay to ensure database write is complete
         await new Promise(resolve => setTimeout(resolve, 100));
         // Reload stats from database to update UI in real time
         const { stats: updatedStats, error: reloadError } = await getUserStats(currentUser.id);
         if (!reloadError && updatedStats) {
-          console.log('Reloaded stats from DB:', updatedStats);
           setUserStats(updatedStats);
-          console.log('Updated userStats state, should trigger HomeView re-render');
         } else if (reloadError) {
           console.error('Error reloading stats:', reloadError);
         } else {
@@ -1658,8 +1242,17 @@ const App: React.FC = () => {
     if(isExamInProgress && view !== 'exam') return;
     
     // Reset chat history when starting a new quiz (only if coming from a different view)
-    if (view === 'quiz' && currentView !== 'quiz' && chatSession) {
+    if ((view === 'quiz' || view === 'reinforcement-quiz') && currentView !== view && chatSession) {
       setChatSession(prev => prev ? { ...prev, history: [] } : null);
+    }
+    
+    // Reset targeted quiz flag when navigating away from quiz view
+    // This allows regenerateQuiz() to be called again if user comes back
+    if (currentView === 'quiz' && view !== 'quiz') {
+      targetedQuizAttemptedRef.current = false;
+    }
+    if (currentView === 'reinforcement-quiz' && view !== 'reinforcement-quiz') {
+      targetedReinforcementQuizAttemptedRef.current = false;
     }
     
     setCurrentView(view);
@@ -1670,7 +1263,6 @@ const App: React.FC = () => {
       const { stats: refreshedStats, error: refreshError } = await getUserStats(currentUser.id);
       if (!refreshError && refreshedStats) {
         setUserStats(refreshedStats);
-        console.log('Refreshed stats when navigating to home:', refreshedStats);
       } else if (refreshError) {
         console.error('Error refreshing stats on home navigation:', refreshError);
       }
@@ -1684,28 +1276,9 @@ const App: React.FC = () => {
       setGenerationStatus(prev => ({ ...prev, flashcards: { generating: true } }));
       setAppError(null);
       try {
-          // Targeted flashcards also use DB questions (same as regular flashcards)
-          console.log('Generating targeted flashcards - using DB questions');
-          
-          // Fetch DB questions and convert them to flashcards
-          const dbQuestions = await getDbQuestionsAsQuiz(TOTAL_FLASHCARDS, documentContent);
-          
-          // Convert quiz questions to flashcards format
-          const dbFlashcards: Flashcard[] = dbQuestions.map(q => {
-            // Use explanation if available, otherwise use the correct answer text
-            const answer = q.explanation && q.explanation.trim() 
-              ? q.explanation 
-              : q.options[q.correctAnswerIndex] || 'לא צוין הסבר';
-            
-            return {
-              question: q.question,
-              answer: answer
-            };
-          });
-          
-          // Shuffle flashcards for variety
-          const shuffledFlashcards = [...dbFlashcards].sort(() => Math.random() - 0.5);
-          setFlashcards(shuffledFlashcards);
+          // Targeted flashcards use AI generation (for specific weaknesses)
+          const flashcards = await generateTargetedFlashcards(weaknesses, documentContent, TOTAL_FLASHCARDS);
+          setFlashcards(flashcards);
       } catch (error) {
           if (error instanceof Error) setAppError(error.message);
           else setAppError("נכשל ביצירת כרטיסיות ממוקדות.");
@@ -1715,16 +1288,26 @@ const App: React.FC = () => {
   }, [documentContent]);
 
   const handleCreateTargetedQuiz = useCallback(async (weaknesses: string[]) => {
-      setCurrentView('quiz');
-      setQuizQuestions(null);
+      // Always navigate to reinforcement quiz view when clicking "צור בוחן חיזוק"
+      setCurrentView('reinforcement-quiz');
+      
+      // Mark that targeted quiz was attempted - this prevents regenerateReinforcementQuiz() from being called
+      targetedReinforcementQuizAttemptedRef.current = true;
+      
+      // Don't clear questions here - keep old questions until new ones are generated
+      // This prevents triggering regenerateReinforcementQuiz() which uses AI generation
       // Don't clear quiz history - it's cumulative across sessions
       // Only reset progress for the current quiz attempt
-      resetQuizProgress();
-      setGenerationStatus(prev => ({ ...prev, quiz: { generating: true } }));
+      resetReinforcementQuizProgress();
+      setGenerationStatus(prev => ({ ...prev, 'reinforcement-quiz': { generating: true } }));
       setAppError(null);
       try {
           // Generate all targeted questions in a single API call
           const questions = await generateTargetedQuiz(weaknesses, documentContent, TOTAL_QUESTIONS);
+          
+          if (!questions || questions.length === 0) {
+            throw new Error('No questions generated');
+          }
           
           // Randomize options for all questions
           const randomizedQuestions = questions.map(q => {
@@ -1739,12 +1322,15 @@ const App: React.FC = () => {
             };
           });
           
-          setQuizQuestions(randomizedQuestions);
+          setReinforcementQuizQuestions(randomizedQuestions);
       } catch (error) {
+          console.error('handleCreateTargetedQuiz: Error generating targeted quiz:', error);
           if (error instanceof Error) setAppError(error.message);
           else setAppError("נכשל ביצירת בוחן ממוקד.");
+          // Don't set questions to null on error - keep existing questions
+          // This prevents triggering regenerateReinforcementQuiz() which uses AI generation
       } finally {
-          setGenerationStatus(prev => ({ ...prev, quiz: { ...prev.quiz, generating: false } }));
+          setGenerationStatus(prev => ({ ...prev, 'reinforcement-quiz': { ...prev['reinforcement-quiz'], generating: false } }));
       }
   }, [documentContent]);
 
@@ -1752,19 +1338,26 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (currentView) {
       case 'home':
-        return <HomeView 
-          quizHistory={quizHistory} 
-          examHistory={examHistory} 
-          setView={handleSetView} 
-          analysis={analysis}
-          isAnalyzing={isAnalyzing}
-          createTargetedFlashcards={handleCreateTargetedFlashcards}
-          createTargetedQuiz={handleCreateTargetedQuiz}
-            emailConfirmed={currentUser?.email_confirmed ?? false}
-            userEmail={currentUser?.email}
-            userStats={userStats}
-            userName={currentUser?.name || currentUser?.email?.split('@')[0]}
-        />;
+        return (
+          <div className="flex-1 overflow-y-auto">
+            <HomeView 
+              quizHistory={quizHistory} 
+              examHistory={examHistory} 
+              setView={handleSetView} 
+              analysis={analysis}
+              isAnalyzing={isAnalyzing}
+              createTargetedFlashcards={handleCreateTargetedFlashcards}
+              createTargetedQuiz={handleCreateTargetedQuiz}
+              emailConfirmed={currentUser?.email_confirmed ?? false}
+              userEmail={currentUser?.email}
+              userStats={userStats}
+              userName={currentUser?.name || currentUser?.email?.split('@')[0]}
+            />
+            {generatedQuestions.length > 0 && (
+              <GeneratedQuestionsView questions={generatedQuestions} />
+            )}
+          </div>
+        );
       case 'quiz':
         if (!currentUser?.email_confirmed) {
           return (
@@ -1794,6 +1387,7 @@ const App: React.FC = () => {
             onQuestionAnswered={handleQuestionAnswered}
             questions={quizQuestions}
             isLoading={generationStatus.quiz.generating}
+            isTargetedQuizGenerating={generationStatus.quiz.generating || targetedQuizAttemptedRef.current}
             regenerateQuiz={regenerateQuiz}
             totalQuestions={TOTAL_QUESTIONS}
             quizProgress={quizProgress}
@@ -1806,6 +1400,51 @@ const App: React.FC = () => {
             isAnalyzing={isAnalyzing}
             chatSession={chatSession}
             setChatSession={setChatSession}
+            quizType="regular"
+        />;
+      case 'reinforcement-quiz':
+        if (!currentUser?.email_confirmed) {
+          return (
+            <div className="flex-grow p-4 md:p-8 overflow-y-auto flex items-center justify-center">
+              <div className="bg-white border border-yellow-200 rounded-2xl shadow-sm p-8 max-w-md text-center">
+                <svg className="h-12 w-12 text-yellow-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-yellow-800 mb-2">אימות אימייל נדרש</h3>
+                <p className="text-sm text-yellow-700 mb-4">
+                  אנא בדוק את תיבת הדואר הנכנס שלך וצור קשר עם האימייל ששלחנו כדי לאמת את החשבון שלך.
+                </p>
+                <button 
+                  onClick={() => handleSetView('home')}
+                  className="px-4 py-2 bg-sky-600 text-white rounded-2xl hover:bg-sky-700 transition-colors"
+                >
+                  חזור לדף הבית
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return <QuizView 
+            documentContent={documentContent} 
+            setAppError={setAppError} 
+            openSideChat={handleOpenSideChat} 
+            onQuestionAnswered={handleQuestionAnswered}
+            questions={reinforcementQuizQuestions}
+            isLoading={generationStatus['reinforcement-quiz'].generating}
+            isTargetedQuizGenerating={generationStatus['reinforcement-quiz'].generating || targetedReinforcementQuizAttemptedRef.current}
+            regenerateQuiz={regenerateReinforcementQuiz}
+            totalQuestions={TOTAL_QUESTIONS}
+            quizProgress={reinforcementQuizProgress}
+            setQuizProgress={setReinforcementQuizProgress}
+            setView={handleSetView}
+            createTargetedFlashcards={handleCreateTargetedFlashcards}
+            createTargetedQuiz={handleCreateTargetedQuiz}
+            userName={currentUser?.name || currentUser?.email?.split('@')[0]}
+            analysis={analysis}
+            isAnalyzing={isAnalyzing}
+            chatSession={chatSession}
+            setChatSession={setChatSession}
+            quizType="reinforcement"
         />;
       case 'exam':
         if (!currentUser?.email_confirmed) {
@@ -1908,6 +1547,29 @@ const App: React.FC = () => {
         />;
       case 'support':
         return <SupportView currentUser={currentUser} />;
+      case 'admin':
+        if (!isAdminUser) {
+          return (
+            <div className="flex-grow p-4 md:p-8 overflow-y-auto flex items-center justify-center">
+              <div className="bg-white border border-red-200 rounded-2xl shadow-sm p-8 max-w-md text-center">
+                <svg className="h-12 w-12 text-red-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-red-800 mb-2">גישה נדחתה</h3>
+                <p className="text-sm text-red-700 mb-4">
+                  אין לך הרשאות מנהל לגשת לדף זה.
+                </p>
+                <button 
+                  onClick={() => handleSetView('home')}
+                  className="px-4 py-2 bg-sky-600 text-white rounded-2xl hover:bg-sky-700 transition-colors"
+                >
+                  חזור לדף הבית
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return <AdminView currentUser={currentUser} />;
       default:
         return null;
     }
@@ -1954,6 +1616,7 @@ const App: React.FC = () => {
           onLogout={handleLogout}
           isExamInProgress={isExamInProgress}
           openMainChat={handleOpenMainChat}
+          isAdmin={isAdminUser}
         />
       )}
 

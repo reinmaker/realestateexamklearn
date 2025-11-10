@@ -174,8 +174,6 @@ ${documentContent}
 }
 
 async function precomputeAnswers() {
-  console.log('Starting to pre-compute answers for all questions...');
-  
   // Fetch all questions with options but WITHOUT answers (answer IS NULL)
   const { data: questions, error } = await supabase
     .from('questions')
@@ -190,7 +188,6 @@ async function precomputeAnswers() {
   }
 
   if (!questions || questions.length === 0) {
-    console.log('No questions to process.');
     return;
   }
 
@@ -203,11 +200,8 @@ async function precomputeAnswers() {
   );
 
   if (validQuestions.length === 0) {
-    console.log('No questions to process.');
     return;
   }
-
-  console.log(`Found ${validQuestions.length} questions to process.`);
 
   let processed = 0;
   let failed = 0;
@@ -217,8 +211,6 @@ async function precomputeAnswers() {
     const question = validQuestions[i];
     
     try {
-      console.log(`\n[${i + 1}/${validQuestions.length}] Processing question ${question.question_number}...`);
-      
       const result = await determineAnswerAndExplanation(
         question.question_text,
         question.options,
@@ -249,10 +241,6 @@ async function precomputeAnswers() {
         failed++;
       } else {
         processed++;
-        console.log(`✓ Question ${question.question_number} processed successfully`);
-        console.log(`  Answer text: ${correctAnswerText.substring(0, 50)}...`);
-        console.log(`  Answer index was: ${result.correctAnswerIndex}`);
-        console.log(`  Progress: ${processed} processed, ${failed} failed, ${validQuestions.length - (i + 1)} remaining`);
       }
 
       // Add a small delay to avoid rate limiting (increased delay for better reliability)
@@ -261,26 +249,18 @@ async function precomputeAnswers() {
     } catch (error) {
       console.error(`\nError processing question ${question.question_number}:`, error);
       failed++;
-      console.log(`  Progress: ${processed} processed, ${failed} failed, ${validQuestions.length - (i + 1)} remaining`);
       
       // If it's a rate limit error, wait longer before continuing
       if (error instanceof Error && (error.message.includes('rate limit') || error.message.includes('429'))) {
-        console.log('  Rate limit detected, waiting 5 seconds...');
         await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
   }
-
-      console.log(`\nCompleted!`);
-  console.log(`Processed: ${processed}`);
-  console.log(`Failed: ${failed}`);
-  console.log(`Total: ${validQuestions.length}`);
 }
 
 // Run the script
 precomputeAnswers()
   .then(() => {
-    console.log('Script completed.');
     process.exit(0);
   })
   .catch((error) => {

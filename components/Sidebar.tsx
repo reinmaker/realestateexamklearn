@@ -1,6 +1,6 @@
 import React from 'react';
 import { ViewType } from '../types';
-import { HomeIcon, QuizIcon, FlashcardsIcon, ChatIcon, UserIcon, LogoutIcon, CloseIcon, ExamIcon, SupportIcon } from './icons';
+import { HomeIcon, QuizIcon, FlashcardsIcon, ChatIcon, UserIcon, LogoutIcon, CloseIcon, ExamIcon, SupportIcon, AdminIcon } from './icons';
 import ExamCountdown from './ExamCountdown';
 
 interface SidebarProps {
@@ -13,23 +13,24 @@ interface SidebarProps {
   onLogout: () => void;
   isExamInProgress: boolean;
   openMainChat: () => void;
+  isAdmin: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMobileOpen, onMobileClose, currentUser, onLogout, isExamInProgress, openMainChat }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMobileOpen, onMobileClose, currentUser, onLogout, isExamInProgress, openMainChat, isAdmin }) => {
   const emailConfirmed = currentUser?.email_confirmed ?? false;
   
   const learningTools = [
     { id: 'home', label: 'בית', icon: HomeIcon, disabled: false },
     { id: 'quiz', label: 'בוחן אימון', icon: QuizIcon, disabled: !emailConfirmed },
+    { id: 'reinforcement-quiz', label: 'בוחן חיזוק', icon: QuizIcon, disabled: !emailConfirmed },
     { id: 'flashcards', label: 'כרטיסיות', icon: FlashcardsIcon, disabled: !emailConfirmed },
     { id: 'chat', label: 'המורה הפרטי שלך', icon: ChatIcon, disabled: !emailConfirmed },
-    { id: 'support', label: 'תמיכה', icon: SupportIcon, disabled: false },
   ];
 
   const examTool = { id: 'exam', label: 'מבחן תיווך', icon: ExamIcon, disabled: !emailConfirmed };
 
   return (
-    <aside className={`w-64 bg-slate-700 border-l border-slate-600 p-6 flex flex-col
+    <aside className={`w-64 bg-slate-700 border-l border-slate-600 p-6 flex flex-col h-screen overflow-y-auto
       fixed md:relative inset-y-0 right-0 z-50
       transition-transform duration-300 ease-in-out
       ${isMobileOpen ? 'translate-x-0' : 'translate-x-full'} md:translate-x-0
@@ -81,12 +82,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
                 disabled={isExamInProgress || item.disabled}
                 className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-colors duration-200 ${
                   currentView === item.id
-                    ? 'bg-sky-500 text-white shadow-sm'
+                    ? 'border-2 border-sky-500 text-sky-500'
                     : 'text-slate-300 hover:bg-slate-600 hover:text-white'
                 } ${isExamInProgress || item.disabled ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
                 title={item.disabled ? 'אימות אימייל נדרש' : ''}
               >
-                <item.icon className="h-5 w-5 ml-3" />
+                <item.icon className={`h-5 w-5 ml-3 ${currentView === item.id ? 'text-sky-500' : ''}`} />
                 {item.label}
               </button>
             </li>
@@ -99,19 +100,40 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
                 <button
                     onClick={() => setView(examTool.id as ViewType)}
                     disabled={examTool.disabled}
-                    className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-colors duration-200 shadow-sm border ${
+                    className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ${
                     currentView === examTool.id
-                        ? 'bg-gradient-to-br from-sky-600 to-sky-700 text-white font-bold border-sky-500 shadow-md'
-                        : 'bg-gradient-to-br from-sky-500 to-sky-600 text-white border-sky-400 hover:from-sky-600 hover:to-sky-700 hover:shadow-lg'
+                        ? 'bg-gradient-to-r from-purple-500 to-purple-700 text-white font-bold border-2 border-purple-400 shadow-lg shadow-purple-500/50'
+                        : 'text-slate-300 hover:bg-slate-600 hover:text-white border-2 border-purple-500'
                     } ${examTool.disabled ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
                     title={examTool.disabled ? 'אימות אימייל נדרש' : ''}
                 >
-                    <examTool.icon className={`h-5 w-5 ml-3 ${examTool.disabled ? '' : 'text-white'}`} />
+                    <examTool.icon className={`h-5 w-5 ml-3 ${currentView === examTool.id ? 'text-white' : ''}`} />
                     {examTool.label}
                 </button>
             </li>
           </ul>
         </div>
+        {isAdmin && (
+          <div className="mt-6 pt-6 border-t border-slate-600">
+            <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">ניהול</p>
+            <ul>
+              <li>
+                <button
+                  onClick={() => setView('admin')}
+                  disabled={isExamInProgress}
+                  className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-colors duration-200 ${
+                    currentView === 'admin'
+                      ? 'border-2 border-sky-500 text-sky-500'
+                      : 'text-slate-300 hover:bg-slate-600 hover:text-white'
+                  } ${isExamInProgress ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                >
+                  <AdminIcon className={`h-5 w-5 ml-3 ${currentView === 'admin' ? 'text-sky-500' : ''}`} />
+                  ניהול משתמשים
+                </button>
+              </li>
+            </ul>
+          </div>
+        )}
       </nav>
       <div className="pt-4 border-t border-slate-600">
           <div className="px-4 py-2.5 flex items-center">
@@ -123,6 +145,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
               <p className="text-xs text-slate-400">משתמש פעיל</p>
             </div>
           </div>
+          <button
+            onClick={() => setView('support')}
+            disabled={isExamInProgress}
+            className="w-full flex items-center mt-2 px-4 py-2.5 text-sm font-medium rounded-xl text-slate-300 hover:bg-slate-600 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <SupportIcon className="h-5 w-5 ml-3" />
+            תמיכה
+          </button>
           <button
             onClick={onLogout}
             disabled={isExamInProgress}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { QuizQuestion, QuizResult, QuizProgress, AnalysisResult, ViewType, ChatSession, ChatMessage } from '../types';
 import { SparklesIcon, FlashcardsIcon, QuizIcon, CheckIcon, CloseIcon, SpeakerIcon } from './icons';
 import { generateSpeech, generateTeacherReaction } from '../services/aiService';
+import { getCachedBookReference, setCachedBookReference, hasCachedBookReference } from '../services/bookReferenceCache';
 
 
 const ProgressCircle: React.FC<{ percentage: number }> = ({ percentage }) => {
@@ -44,6 +45,7 @@ interface QuizViewProps {
   onQuestionAnswered: (result: QuizResult) => void;
   questions: QuizQuestion[] | null;
   isLoading: boolean;
+  isTargetedQuizGenerating?: boolean; // Indicates if a targeted quiz is being generated or was attempted
   regenerateQuiz: () => void;
   totalQuestions: number;
   quizProgress: QuizProgress;
@@ -55,10 +57,11 @@ interface QuizViewProps {
   isAnalyzing: boolean;
   chatSession: ChatSession | null;
   setChatSession: React.Dispatch<React.SetStateAction<ChatSession | null>>;
+  quizType?: 'regular' | 'reinforcement'; // Distinguish between regular quiz (DB) and reinforcement quiz (AI)
 }
 
 const QuizView: React.FC<QuizViewProps> = ({
-  userName, documentContent, setAppError, openSideChat, onQuestionAnswered, questions, isLoading, regenerateQuiz, totalQuestions, quizProgress, setQuizProgress, setView, createTargetedFlashcards, createTargetedQuiz, analysis, isAnalyzing, chatSession, setChatSession }) => {
+  userName, documentContent, setAppError, openSideChat, onQuestionAnswered, questions, isLoading, isTargetedQuizGenerating = false, regenerateQuiz, totalQuestions, quizProgress, setQuizProgress, setView, createTargetedFlashcards, createTargetedQuiz, analysis, isAnalyzing, chatSession, setChatSession, quizType = 'regular' }) => {
   
   const hebrewLetters = ['א', 'ב', 'ג', 'ד'];
   
@@ -91,6 +94,65 @@ const QuizView: React.FC<QuizViewProps> = ({
   const [showTeacherMessage, setShowTeacherMessage] = useState(false);
   const [teacherMessageQuestion, setTeacherMessageQuestion] = useState<QuizQuestion | null>(null); // Store question context for chat
   const recentStreakRef = useRef<number>(0); // Track recent correct/incorrect streak
+  const [showBookReference, setShowBookReference] = useState(false); // State for showing/hiding book reference
+  const [displayBookReference, setDisplayBookReference] = useState<string | null>(null); // Converted book reference for display
+  const [isLoadingBookReference, setIsLoadingBookReference] = useState(false); // State for loading book reference
+
+  // Convert book reference to new format when question changes
+  useEffect(() => {
+    if (questions && questions.length > 0 && currentQuestionIndex < questions.length) {
+      const currentQuestion = questions[currentQuestionIndex];
+      const questionKey = currentQuestion.question; // Use question text as cache key
+      
+      // Check module-level cache first
+      if (hasCachedBookReference(questionKey)) {
+        const cachedRef = getCachedBookReference(questionKey);
+        setDisplayBookReference(cachedRef || null);
+        setIsLoadingBookReference(false);
+        return;
+      }
+      
+      // Reset loading state when question changes (but keep reference if cached)
+      setIsLoadingBookReference(true);
+      setShowBookReference(false);
+      
+      if (currentQuestion?.bookReference) {
+        const ref = currentQuestion.bookReference;
+        // Check if it's already new format
+        if (ref.includes('מופיע בעמ') || ref.includes('מתחילות בעמ')) {
+          setDisplayBookReference(ref);
+          setCachedBookReference(questionKey, ref); // Cache it in module-level cache
+          setIsLoadingBookReference(false);
+        } else {
+          // Convert old format to new format
+          import('../services/bookReferenceService').then(({ convertOldFormatToNew }) => {
+            const converted = convertOldFormatToNew(ref, currentQuestion.question);
+            setDisplayBookReference(converted);
+            setCachedBookReference(questionKey, converted); // Cache it in module-level cache
+            setIsLoadingBookReference(false);
+          });
+        }
+      } else {
+        // Try to generate book reference if missing
+        import('../services/bookReferenceService').then(({ getBookReferenceByAI }) => {
+          getBookReferenceByAI(currentQuestion.question, undefined, documentContent)
+            .then((generatedRef) => {
+              setDisplayBookReference(generatedRef);
+              setCachedBookReference(questionKey, generatedRef); // Cache it in module-level cache
+              setIsLoadingBookReference(false);
+            })
+            .catch((error) => {
+              console.warn('QuizView: Failed to generate bookReference:', error);
+              setDisplayBookReference(null);
+              setIsLoadingBookReference(false);
+            });
+        });
+      }
+    } else {
+      setDisplayBookReference(null);
+      setIsLoadingBookReference(false);
+    }
+  }, [questions, currentQuestionIndex, documentContent]);
 
   useEffect(() => {
     // If loading, start animated progress from 0% to 100% over 60 seconds
@@ -151,8 +213,10 @@ const QuizView: React.FC<QuizViewProps> = ({
   useEffect(() => {
     // Only regenerate if no questions AND user hasn't started answering
     // Don't regenerate if user is on a question (currentQuestionIndex > 0 or has selected answer)
+    // CRITICAL: Don't regenerate if a targeted quiz is being generated or was attempted
+    // This prevents regenerateQuiz() from overriding targeted quiz generation
     const userHasStarted = currentQuestionIndex > 0 || selectedAnswer !== null;
-    if (!questions && !isLoading && !userHasStarted && !hasRegeneratedRef.current) {
+    if (!questions && !isLoading && !userHasStarted && !hasRegeneratedRef.current && !isTargetedQuizGenerating) {
         hasRegeneratedRef.current = true;
         regenerateQuiz().finally(() => {
           // Reset after a delay to allow regeneration if needed later
@@ -161,7 +225,7 @@ const QuizView: React.FC<QuizViewProps> = ({
           }, 2000);
         });
     }
-  }, [questions, isLoading, regenerateQuiz, currentQuestionIndex, selectedAnswer]);
+  }, [questions, isLoading, isTargetedQuizGenerating, regenerateQuiz, currentQuestionIndex, selectedAnswer]);
 
   useEffect(() => {
     if (questions) {
@@ -234,17 +298,6 @@ const QuizView: React.FC<QuizViewProps> = ({
       const selectedAnswerText = currentQuestion.options[index];
       const correctAnswerText = currentQuestion.options[currentQuestion.correctAnswerIndex];
       
-      console.log('Generating teacher reaction:', {
-        isCorrect,
-        newScore,
-        totalAnswered,
-        recentStreak: recentStreakRef.current,
-        userName,
-        question: currentQuestion.question,
-        selectedAnswer: selectedAnswerText,
-        correctAnswer: correctAnswerText
-      });
-      
       generateTeacherReaction(
         isCorrect,
         newScore,
@@ -256,7 +309,6 @@ const QuizView: React.FC<QuizViewProps> = ({
         correctAnswerText,
         currentQuestion.explanation
       ).then((reaction) => {
-        console.log('Teacher reaction received:', reaction);
         setTeacherMessage(reaction);
         setTeacherMessageQuestion(currentQuestion); // Store question for chat
         setShowTeacherMessage(true);
@@ -277,7 +329,6 @@ const QuizView: React.FC<QuizViewProps> = ({
         const fallbackMessage = isCorrect 
           ? `${userName || 'אתה'}, תשובה נכונה! מעולה! המשך כך.`
           : `${userName || 'אתה'}, לא נורא. כל שגיאה היא הזדמנות ללמוד.`;
-        console.log('Using fallback message:', fallbackMessage);
         setTeacherMessage(fallbackMessage);
         setTeacherMessageQuestion(currentQuestion); // Store question for chat
         setShowTeacherMessage(true);
@@ -306,15 +357,12 @@ const QuizView: React.FC<QuizViewProps> = ({
     if (currentQuestionIndex >= questions.length - 1) {
       // Only finish if we have all 25 questions loaded
       if (isFullyLoaded || questions.length >= totalQuestions) {
-        console.log('Finishing quiz with all', questions.length, 'questions loaded');
         setQuizProgress(prev => ({ ...prev, isFinished: true }));
-      } else {
-        // Not all questions loaded yet - wait for more questions
-        // The UI will show "יוצר שאלות נוספות..." message and user can't proceed
-        console.log('Waiting for more questions. Current:', questions.length, 'Target:', totalQuestions, 'Loading:', isLoading);
       }
     } else {
       // Move to next question
+      setShowBookReference(false); // Reset book reference visibility
+      setDisplayBookReference(null); // Reset converted reference
       setQuizProgress(prev => ({
           ...prev,
           currentQuestionIndex: prev.currentQuestionIndex + 1,
@@ -518,11 +566,6 @@ const QuizView: React.FC<QuizViewProps> = ({
                             const hasUserAnswer = userAnswerIndex !== null;
                             const isQuestionWrong = hasUserAnswer && !isQuestionCorrect;
                             
-                            // Debug: Log wrong answers
-                            if (isQuestionWrong) {
-                                console.log(`Question ${index + 1} - Wrong answer: User selected ${userAnswerIndex}, Correct is ${q.correctAnswerIndex}`);
-                            }
-                            
                             return (
                                 <div key={index} className={`bg-white p-5 rounded-2xl border-2 ${isQuestionCorrect ? 'border-green-300' : hasUserAnswer ? 'border-red-400' : 'border-slate-200'}`}>
                                     <div className="flex items-center justify-between mb-4">
@@ -607,6 +650,7 @@ const QuizView: React.FC<QuizViewProps> = ({
   }
   
   const currentQuestion = questions[currentQuestionIndex];
+  
   if (!currentQuestion) {
      if (!isFullyLoaded && !isLoading) {
         return (
@@ -764,6 +808,73 @@ const QuizView: React.FC<QuizViewProps> = ({
             </div>
           </div>
         )}
+        
+        {/* Book Reference Card - Always Visible */}
+        <div className="mt-6">
+          <div
+            onClick={() => !isLoadingBookReference && displayBookReference && setShowBookReference(!showBookReference)}
+            className={`bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-2xl shadow-lg transition-all duration-300 ease-in-out overflow-hidden ${
+              isLoadingBookReference 
+                ? 'cursor-wait opacity-75' 
+                : displayBookReference 
+                  ? 'cursor-pointer hover:shadow-xl hover:scale-[1.01] hover:border-blue-300' 
+                  : 'cursor-default opacity-60'
+            } ${
+              showBookReference && displayBookReference
+                ? 'shadow-xl scale-[1.02] border-blue-400' 
+                : ''
+            }`}
+          >
+            <div className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center transition-transform duration-300 ${
+                  showBookReference && displayBookReference ? 'rotate-180' : ''
+                }`}>
+                  {isLoadingBookReference ? (
+                    <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <span className="text-2xl">📖</span>
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-blue-900">הפניה לספר</h3>
+                  {isLoadingBookReference ? (
+                    <p className="text-sm text-blue-600">טוען הפניה...</p>
+                  ) : displayBookReference ? (
+                    <p className="text-sm text-blue-600">לחץ כדי להציג את ההפניה</p>
+                  ) : (
+                    <p className="text-sm text-blue-500">אין הפניה זמינה</p>
+                  )}
+                </div>
+              </div>
+              {displayBookReference && !isLoadingBookReference && (
+                <div className={`transition-transform duration-300 ${showBookReference ? 'rotate-180' : ''}`}>
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              )}
+            </div>
+            
+            {displayBookReference && (
+              <div 
+                className={`transition-all duration-500 ease-in-out ${
+                  showBookReference 
+                    ? 'max-h-96 opacity-100 translate-y-0' 
+                    : 'max-h-0 opacity-0 -translate-y-4'
+                }`}
+              >
+                <div className="px-4 pb-4 border-t border-blue-200 pt-4">
+                  <div className="bg-white rounded-xl p-4 shadow-inner border border-blue-100">
+                    <p className="text-base text-blue-900 leading-relaxed font-medium">
+                      {displayBookReference.replace(/בקובץ\.?/g, '').trim()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

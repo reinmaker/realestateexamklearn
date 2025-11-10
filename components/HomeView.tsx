@@ -215,23 +215,6 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [quizPassFail, setQuizPassFail] = useState<{ passed: number; failed: number }>({ passed: 0, failed: 0 });
   
-  // Debug logging
-  useEffect(() => {
-    console.log('HomeView received props:', {
-      quizHistoryLength: quizHistory?.length || 0,
-      examHistoryLength: examHistory?.length || 0,
-      allHistoryLength: allHistory?.length || 0,
-      userStats: userStats,
-      quizHistoryType: Array.isArray(quizHistory) ? 'array' : typeof quizHistory,
-      examHistoryType: Array.isArray(examHistory) ? 'array' : typeof examHistory,
-      sampleQuizItem: quizHistory?.[0] ? {
-        hasQuestion: !!quizHistory[0].question,
-        isCorrect: quizHistory[0].isCorrect,
-        isCorrectType: typeof quizHistory[0].isCorrect
-      } : null
-    });
-  }, [quizHistory, examHistory, allHistory, userStats]);
-  
   // Fetch quiz sessions to calculate pass/fail counts
   useEffect(() => {
     const fetchQuizSessions = async () => {
@@ -253,8 +236,15 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
         const quizSessions = sessions.filter(s => s.session_type === 'quiz');
         
         // Calculate passed (>= 60%) and failed (< 60%)
-        const passed = quizSessions.filter(s => s.percentage >= 60).length;
-        const failed = quizSessions.filter(s => s.percentage < 60).length;
+        // Ensure percentage is a number (handle string/number conversion)
+        const passed = quizSessions.filter(s => {
+          const percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(s.percentage as any) || 0;
+          return percentage >= 60;
+        }).length;
+        const failed = quizSessions.filter(s => {
+          const percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(s.percentage as any) || 0;
+          return percentage < 60;
+        }).length;
         
         setQuizPassFail({ passed, failed });
       } catch (error) {
@@ -275,15 +265,6 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
       const correct = userStats.total_correct_answers || 0;
       const percentage = Math.round(userStats.average_score || 0);
       
-      console.log('HomeView: Using DB stats:', {
-        total,
-        correct,
-        percentage,
-        userStats: userStats,
-        userStatsId: userStats ? Object.keys(userStats).length : 0,
-        timestamp: new Date().toISOString()
-      });
-      
       return { total, correct, percentage };
     } else {
       // Fallback to calculating from history if no DB stats
@@ -295,15 +276,6 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
         return isCorrect === true || isCorrect === 'true' || isCorrect === 1 || isCorrect === '1';
       }).length || 0;
       const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
-      
-      console.log('HomeView: Stats calculation from history (fallback):', {
-        total,
-        correct,
-        percentage,
-        allHistoryLength: allHistory?.length,
-        hasUserStats: !!userStats,
-        timestamp: new Date().toISOString()
-      });
       
       return { total, correct, percentage };
     }
@@ -405,8 +377,17 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
             </div>
         </div>
         
-        {/* AI Analysis - Now above exam readiness */}
-        <div className="mb-8 order-3 md:order-1 animate-fade-in" style={{ animationDelay: '0.1s', animationFillMode: 'both' }}>
+        {/* Exam Readiness Bar - Now above AI analysis */}
+        <div className="mb-6 order-3 md:order-1 animate-fade-in" style={{ animationDelay: '0.1s', animationFillMode: 'both' }}>
+            <ExamReadinessBar 
+                quizPassFail={quizPassFail}
+                totalQuizzes={totalQuizzes}
+                averageScore={averageScore}
+            />
+        </div>
+        
+        {/* AI Analysis - Now below exam readiness */}
+        <div className="mb-8 order-4 md:order-2 animate-fade-in" style={{ animationDelay: '0.15s', animationFillMode: 'both' }}>
             <h2 className="text-xl md:text-2xl font-bold mb-4 flex items-center text-slate-900"><SparklesIcon className="h-5 w-5 md:h-6 md:w-6 text-slate-700 ml-2" /> ניתוח AI</h2>
             {allHistory.length === 0 ? (
                 <div className="bg-white border border-slate-200 p-8 rounded-2xl text-center">
@@ -458,16 +439,7 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
             )}
         </div>
         
-        {/* Exam Readiness Bar - Now below AI analysis */}
-        <div className="mb-6 order-4 md:order-2 animate-fade-in" style={{ animationDelay: '0.15s', animationFillMode: 'both' }}>
-            <ExamReadinessBar 
-                quizPassFail={quizPassFail}
-                totalQuizzes={totalQuizzes}
-                averageScore={averageScore}
-            />
-        </div>
-        
-        {/* Stat cards - Now below exam readiness */}
+        {/* Stat cards - Now below AI analysis */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 order-5 md:order-3 animate-fade-in" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
             <StatCard title="שאלות שנענו" value={stats.total} description="סך כל השאלות שענית עליהן." />
             <StatCard title="תשובות נכונות" value={stats.correct} description="מספר התשובות הנכונות שלך." />
