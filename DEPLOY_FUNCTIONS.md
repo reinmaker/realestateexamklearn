@@ -53,3 +53,12 @@ Deploy the `get-pdf-signed-url` function to enable PDF downloads from private st
 - Copy contents from `supabase/functions/get-pdf-signed-url/index.ts`
 - This function uses the service role key to generate signed URLs for PDFs in the Materials bucket
 
+## Also Deploy get-api-keys (REQUIRED for production)
+
+Deploy the `get-api-keys` function to enable API key retrieval in production:
+- Same process as above, but use `get-api-keys` as the function name
+- Copy contents from `supabase/functions/get-api-keys/index.ts`
+- This function returns API keys from Supabase secrets (OPENAI_API_KEY, GEMINI_API_KEY, GOOGLE_CLOUD_TTS_API_KEY)
+- **IMPORTANT**: This function must be deployed for the app to work in production (Netlify)
+- The function handles CORS properly to allow requests from the Netlify deployment
+
