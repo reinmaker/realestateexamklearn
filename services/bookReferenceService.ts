@@ -2114,8 +2114,8 @@ async function getBookReferenceOpenAI(
     // Continue with chat completions - don't throw error
   }
   
-  // Skip Assistants API - use fast chat completions instead
-  if (false && pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
+  // Use Assistants API with file_search tool (searches uploaded PDFs directly)
+  if (pdfAttachment && pdfAttachment.fileIds && pdfAttachment.fileIds.length > 0) {
     try {
       
       // Create an Assistant with file_search tool
@@ -2148,7 +2148,7 @@ async function getBookReferenceOpenAI(
         tools: [{ type: 'file_search' }],
         tool_resources: {
           file_search: {
-            vector_store_ids: pdfAttachment.vectorStoreIds
+            file_ids: pdfAttachment.fileIds
           }
         }
       });
