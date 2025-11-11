@@ -53,12 +53,12 @@ Deploy the `get-pdf-signed-url` function to enable PDF downloads from private st
 - Copy contents from `supabase/functions/get-pdf-signed-url/index.ts`
 - This function uses the service role key to generate signed URLs for PDFs in the Materials bucket
 
-## Also Deploy get-api-keys (REQUIRED for production)
+## Also Deploy attach-pdfs-to-openai (REQUIRED for vector stores)
 
-Deploy the `get-api-keys` function to enable API key retrieval in production:
-- Same process as above, but use `get-api-keys` as the function name
-- Copy contents from `supabase/functions/get-api-keys/index.ts`
-- This function returns API keys from Supabase secrets (OPENAI_API_KEY, GEMINI_API_KEY, GOOGLE_CLOUD_TTS_API_KEY)
-- **IMPORTANT**: This function must be deployed for the app to work in production (Netlify)
-- The function handles CORS properly to allow requests from the Netlify deployment
+Deploy the `attach-pdfs-to-openai` function to enable server-side vector store creation:
+- Same process as above, but use `attach-pdfs-to-openai` as the function name
+- Copy contents from `supabase/functions/attach-pdfs-to-openai/index.ts`
+- This function creates vector stores server-side (since client-side vector store creation is not supported)
+- The function uses the OpenAI API key to create and attach PDFs to vector stores
+- **IMPORTANT**: This enables the file_search tool to work with Assistants API
 

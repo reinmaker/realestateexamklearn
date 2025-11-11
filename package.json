@@ -15,7 +15,7 @@
     "@supabase/supabase-js": "^2.78.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.2",
-    "openai": "^6.8.0",
+    "openai": "^6.8.1",
     "pdfjs-dist": "^4.0.379",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

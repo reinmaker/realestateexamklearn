@@ -422,56 +422,7 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
         throw new Error('Part 1 file processing timeout');
       }
       
-      // Verify that beta API is available
-      if (!openai.beta) {
-        console.error('OpenAI client structure:', { hasBeta: !!openai.beta, openaiKeys: Object.keys(openai) });
-        throw new Error('OpenAI beta API is not available. Please check your OpenAI SDK version.');
-      }
-      
-      // Try to use vectorStores if available
-      if (openai.beta && openai.beta.vectorStores && typeof openai.beta.vectorStores.create === 'function') {
-        try {
-          console.log('📌 Attempting to create vector store for part 1...');
-          // Create vector store for part 1
-          const vectorStore1 = await openai.beta.vectorStores.create({
-            name: 'book-part1-store',
-            file_ids: [part1FileId]
-          });
-          
-          // Wait for vector store to be ready
-          let vectorStoreStatus = vectorStore1.status;
-          waitCount = 0;
-          while (vectorStoreStatus === 'in_progress' && waitCount < maxWaitTime) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const storeInfo = await openai.beta.vectorStores.retrieve(vectorStore1.id);
-            vectorStoreStatus = storeInfo.status;
-            waitCount++;
-          }
-          
-          if (waitCount >= maxWaitTime) {
-            throw new Error('Part 1 vector store processing timeout');
-          }
-          
-          vectorStoreIds.push(vectorStore1.id);
-          console.log('✅ Part 1 vector store created:', vectorStore1.id);
-        } catch (vectorStoreError) {
-          console.warn('⚠️ Failed to create vector store for part 1:', vectorStoreError?.message);
-          console.warn('   OpenAI client structure:', { 
-            hasBeta: !!openai.beta, 
-            hasVectorStores: !!openai.beta?.vectorStores,
-            vectorStoresType: typeof openai.beta?.vectorStores
-          });
-          // Continue without vector stores - will use file_ids for file_search (if supported)
-        }
-      } else {
-        console.warn('⚠️ openai.beta.vectorStores is not available (not supported in this OpenAI SDK version)');
-        console.warn('   OpenAI client structure:', { 
-          hasBeta: !!openai.beta, 
-          hasVectorStores: !!openai.beta?.vectorStores,
-          vectorStoresType: typeof openai.beta?.vectorStores,
-          betaKeys: openai.beta ? Object.keys(openai.beta) : 'no beta'
-        });
-      }
+      // Skip vector stores - using fast chat completions instead of Assistants API
     }
     
     // Upload part 2 PDF
@@ -507,39 +458,7 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
         throw new Error('Part 2 file processing timeout');
       }
       
-      // Try to use vectorStores if available
-      if (openai.beta && openai.beta.vectorStores && typeof openai.beta.vectorStores.create === 'function') {
-        try {
-          console.log('📌 Attempting to create vector store for part 2...');
-          // Create vector store for part 2
-          const vectorStore2 = await openai.beta.vectorStores.create({
-            name: 'book-part2-store',
-            file_ids: [part2FileId]
-          });
-          
-          // Wait for vector store to be ready
-          let vectorStoreStatus = vectorStore2.status;
-          waitCount = 0;
-          while (vectorStoreStatus === 'in_progress' && waitCount < maxWaitTime) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const storeInfo = await openai.beta.vectorStores.retrieve(vectorStore2.id);
-            vectorStoreStatus = storeInfo.status;
-            waitCount++;
-          }
-          
-          if (waitCount >= maxWaitTime) {
-            throw new Error('Part 2 vector store processing timeout');
-          }
-          
-          vectorStoreIds.push(vectorStore2.id);
-          console.log('✅ Part 2 vector store created:', vectorStore2.id);
-        } catch (vectorStoreError) {
-          console.warn('⚠️ Failed to create vector store for part 2:', vectorStoreError?.message);
-          // Continue without vector stores
-        }
-      } else {
-        console.warn('⚠️ openai.beta.vectorStores is not available for part 2 (not supported in this SDK version)');
-      }
+      // Skip vector stores - using fast chat completions instead
     }
     
     // Cleanup function
@@ -2071,52 +1990,52 @@ export async function getBookReferenceByAI(
   // First try keyword-based matching for quick validation
   const keywordReference = getBookReferenceByKeywords(questionText);
   
-  // Try OpenAI first (primary service for book references)
+  // Try Gemini FIRST (PRIMARY - file search with PDFs works perfectly!)
   try {
-    const aiReference = await getBookReferenceOpenAI(questionText, topic, documentContent);
+    const geminiReference = await getBookReferenceGemini(questionText, topic, documentContent);
       
-    // Validate AI result against keyword match if available
+    // Validate Gemini result against keyword match if available
     if (keywordReference) {
       // Extract chapter numbers from both
-      const aiChapterMatch = aiReference.match(/פרק (\d+)/);
+      const geminiChapterMatch = geminiReference.match(/פרק (\d+)/);
       const keywordChapterMatch = keywordReference.match(/פרק (\d+)/);
       
-      // Check if AI returned new format (includes page number or "מופיע בעמ")
-      const aiIsNewFormat = aiReference.includes('מופיע בעמ') || 
-                           aiReference.includes('מתחילות בעמ') ||
-                           aiReference.includes('עמ\'') ||
-                           aiReference.includes('עמוד');
+      // Check if Gemini returned new format (includes page number or "מופיע בעמ")
+      const geminiIsNewFormat = geminiReference.includes('מופיע בעמ') || 
+                           geminiReference.includes('מתחילות בעמ') ||
+                           geminiReference.includes('עמ\'') ||
+                           geminiReference.includes('עמוד');
       const keywordIsNewFormat = keywordReference.includes('מופיע בעמ') || 
                                  keywordReference.includes('מתחילות בעמ') ||
                                  keywordReference.includes('עמ\'') ||
                                  keywordReference.includes('עמוד');
       
-      if (aiIsNewFormat) {
-        // AI returned new format, validate and use it (prefer AI over keyword)
-        return validateReference(aiReference, questionText);
+      if (geminiIsNewFormat) {
+        // Gemini returned new format, validate and use it (prefer Gemini over keyword)
+        return validateReference(geminiReference, questionText);
       } else if (keywordIsNewFormat) {
         // Keyword returned new format, use it
         return validateReference(keywordReference, questionText);
       } else {
         // Both are old format, check chapters
-        // If AI reference doesn't have chapter info but keyword does, still prefer AI if it looks valid
-        if (!aiChapterMatch && keywordChapterMatch) {
-          // AI doesn't have chapter, but has law name - prefer AI if it's a valid law reference
-          if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
-            return convertOldFormatToNew(aiReference, questionText);
+        // If Gemini reference doesn't have chapter info but keyword does, still prefer Gemini if it looks valid
+        if (!geminiChapterMatch && keywordChapterMatch) {
+          // Gemini doesn't have chapter, but has law name - prefer Gemini if it's a valid law reference
+          if (geminiReference.includes('חוק') || geminiReference.includes('תקנות')) {
+            return convertOldFormatToNew(geminiReference, questionText);
           }
         }
-        if (aiChapterMatch && keywordChapterMatch && aiChapterMatch[1] === keywordChapterMatch[1]) {
+        if (geminiChapterMatch && keywordChapterMatch && geminiChapterMatch[1] === keywordChapterMatch[1]) {
           // Chapters match, convert to new format
-          return convertOldFormatToNew(aiReference, questionText);
+          return convertOldFormatToNew(geminiReference, questionText);
         } else if (keywordChapterMatch) {
-          // Chapters don't match, but if AI reference looks valid (has law name), prefer it
-          if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
-            return convertOldFormatToNew(aiReference, questionText);
+          // Chapters don't match, but if Gemini reference looks valid (has law name), prefer it
+          if (geminiReference.includes('חוק') || geminiReference.includes('תקנות')) {
+            return convertOldFormatToNew(geminiReference, questionText);
           }
           // Otherwise prefer keyword-based (more reliable)
-          console.warn('AI reference chapter mismatch, using keyword-based reference:', {
-            ai: aiReference,
+          console.warn('Gemini reference chapter mismatch, using keyword-based reference:', {
+            gemini: geminiReference,
             keyword: keywordReference
           });
           return convertOldFormatToNew(keywordReference, questionText);
@@ -2124,41 +2043,56 @@ export async function getBookReferenceByAI(
       }
     }
     
-    // Validate AI reference before returning (convert if old format)
-    return validateReference(aiReference, questionText);
+    // Validate Gemini reference before returning (convert if old format)
+    return validateReference(geminiReference, questionText);
   } catch (error) {
-    console.error('getBookReferenceByAI: OpenAI failed, error details:', {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    console.warn('getBookReferenceByAI: OpenAI failed for book reference, trying Gemini as fallback');
-    // Fallback to Gemini
+    console.warn('Gemini book reference failed, trying OpenAI as fallback:', (error as Error).message);
+    // Fallback to OpenAI
     try {
-      const geminiReference = await getBookReferenceGemini(questionText, topic, documentContent);
+      const aiReference = await getBookReferenceOpenAI(questionText, topic, documentContent);
       
-      // Validate against keyword match
+      // Validate AI result against keyword match if available
       if (keywordReference) {
-        // Check if Gemini returned new format
-        const geminiIsNewFormat = geminiReference.includes('מופיע בעמ') || geminiReference.includes('מתחילות בעמ');
-        const keywordIsNewFormat = keywordReference.includes('מופיע בעמ') || keywordReference.includes('מתחילות בעמ');
+        // Extract chapter numbers from both
+        const aiChapterMatch = aiReference.match(/פרק (\d+)/);
+        const keywordChapterMatch = keywordReference.match(/פרק (\d+)/);
         
-        if (geminiIsNewFormat) {
-          // Gemini returned new format, validate and use it
-          return validateReference(geminiReference, questionText);
+        // Check if AI returned new format (includes page number or "מופיע בעמ")
+        const aiIsNewFormat = aiReference.includes('מופיע בעמ') || 
+                             aiReference.includes('מתחילות בעמ') ||
+                             aiReference.includes('עמ\'') ||
+                             aiReference.includes('עמוד');
+        const keywordIsNewFormat = keywordReference.includes('מופיע בעמ') || 
+                                   keywordReference.includes('מתחילות בעמ') ||
+                                   keywordReference.includes('עמ\'') ||
+                                   keywordReference.includes('עמוד');
+        
+        if (aiIsNewFormat) {
+          // AI returned new format, validate and use it (prefer AI over keyword)
+          return validateReference(aiReference, questionText);
         } else if (keywordIsNewFormat) {
           // Keyword returned new format, use it
           return validateReference(keywordReference, questionText);
         } else {
           // Both are old format, check chapters
-          const geminiChapterMatch = geminiReference.match(/פרק (\d+)/);
-          const keywordChapterMatch = keywordReference.match(/פרק (\d+)/);
-          
-          if (geminiChapterMatch && keywordChapterMatch && geminiChapterMatch[1] === keywordChapterMatch[1]) {
+          // If AI reference doesn't have chapter info but keyword does, still prefer AI if it looks valid
+          if (!aiChapterMatch && keywordChapterMatch) {
+            // AI doesn't have chapter, but has law name - prefer AI if it's a valid law reference
+            if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
+              return convertOldFormatToNew(aiReference, questionText);
+            }
+          }
+          if (aiChapterMatch && keywordChapterMatch && aiChapterMatch[1] === keywordChapterMatch[1]) {
             // Chapters match, convert to new format
-            return convertOldFormatToNew(geminiReference, questionText);
+            return convertOldFormatToNew(aiReference, questionText);
           } else if (keywordChapterMatch) {
-            console.warn('Gemini reference chapter mismatch, using keyword-based reference:', {
-              gemini: geminiReference,
+            // Chapters don't match, but if AI reference looks valid (has law name), prefer it
+            if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
+              return convertOldFormatToNew(aiReference, questionText);
+            }
+            // Otherwise prefer keyword-based (more reliable)
+            console.warn('AI reference chapter mismatch, using keyword-based reference:', {
+              ai: aiReference,
               keyword: keywordReference
             });
             return convertOldFormatToNew(keywordReference, questionText);
@@ -2166,10 +2100,13 @@ export async function getBookReferenceByAI(
         }
       }
       
-      // Validate Gemini reference before returning (convert if old format)
-      return validateReference(geminiReference, questionText);
-    } catch (geminiError) {
-      console.error('Both OpenAI and Gemini failed for book reference:', geminiError);
+      // Validate AI reference before returning (convert if old format)
+      return validateReference(aiReference, questionText);
+    } catch (openaiError) {
+      console.error('Both Gemini and OpenAI failed for book reference:', {
+        gemini: (error as Error).message,
+        openai: (openaiError as Error).message
+      });
       // Final fallback to keyword-based or default
       if (keywordReference) {
         // Convert to new format if it's old format
@@ -2238,8 +2175,8 @@ async function getBookReferenceOpenAI(
     // Continue with chat completions - don't throw error
   }
   
-  // Use Assistants API only if vector stores are available (file_ids are not supported by file_search)
-  if (pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
+  // Skip Assistants API - use fast chat completions instead
+  if (false && pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
     try {
       
       // Create an Assistant with file_search tool
