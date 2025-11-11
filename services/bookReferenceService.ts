@@ -428,9 +428,10 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
         throw new Error('OpenAI beta API is not available. Please check your OpenAI SDK version.');
       }
       
-      // Try to use vectorStores if available, otherwise use file_ids directly
-      if (openai.beta && openai.beta.vectorStores) {
+      // Try to use vectorStores if available
+      if (openai.beta && openai.beta.vectorStores && typeof openai.beta.vectorStores.create === 'function') {
         try {
+          console.log('📌 Attempting to create vector store for part 1...');
           // Create vector store for part 1
           const vectorStore1 = await openai.beta.vectorStores.create({
             name: 'book-part1-store',
@@ -454,12 +455,22 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
           vectorStoreIds.push(vectorStore1.id);
           console.log('✅ Part 1 vector store created:', vectorStore1.id);
         } catch (vectorStoreError) {
-          console.warn('⚠️ Failed to create vector store for part 1, will use file_ids directly:', vectorStoreError);
-          // Continue without vector stores - will use file_ids for file_search
+          console.warn('⚠️ Failed to create vector store for part 1:', vectorStoreError?.message);
+          console.warn('   OpenAI client structure:', { 
+            hasBeta: !!openai.beta, 
+            hasVectorStores: !!openai.beta?.vectorStores,
+            vectorStoresType: typeof openai.beta?.vectorStores
+          });
+          // Continue without vector stores - will use file_ids for file_search (if supported)
         }
       } else {
-        console.warn('⚠️ openai.beta.vectorStores is not available, will use file_ids directly');
-        // fileIds already contains part1FileId, so we can use it directly
+        console.warn('⚠️ openai.beta.vectorStores is not available (not supported in this OpenAI SDK version)');
+        console.warn('   OpenAI client structure:', { 
+          hasBeta: !!openai.beta, 
+          hasVectorStores: !!openai.beta?.vectorStores,
+          vectorStoresType: typeof openai.beta?.vectorStores,
+          betaKeys: openai.beta ? Object.keys(openai.beta) : 'no beta'
+        });
       }
     }
     
@@ -496,9 +507,10 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
         throw new Error('Part 2 file processing timeout');
       }
       
-      // Try to use vectorStores if available, otherwise use file_ids directly
-      if (openai.beta && openai.beta.vectorStores) {
+      // Try to use vectorStores if available
+      if (openai.beta && openai.beta.vectorStores && typeof openai.beta.vectorStores.create === 'function') {
         try {
+          console.log('📌 Attempting to create vector store for part 2...');
           // Create vector store for part 2
           const vectorStore2 = await openai.beta.vectorStores.create({
             name: 'book-part2-store',
@@ -522,12 +534,11 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
           vectorStoreIds.push(vectorStore2.id);
           console.log('✅ Part 2 vector store created:', vectorStore2.id);
         } catch (vectorStoreError) {
-          console.warn('⚠️ Failed to create vector store for part 2, will use file_ids directly:', vectorStoreError);
-          // Continue without vector stores - will use file_ids for file_search
+          console.warn('⚠️ Failed to create vector store for part 2:', vectorStoreError?.message);
+          // Continue without vector stores
         }
       } else {
-        console.warn('⚠️ openai.beta.vectorStores is not available for part 2, will use file_ids directly');
-        // fileIds already contains part2FileId, so we can use it directly
+        console.warn('⚠️ openai.beta.vectorStores is not available for part 2 (not supported in this SDK version)');
       }
     }
     
@@ -560,7 +571,14 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
     if (vectorStoreIds.length > 0) {
       console.log('✅ PDF attachment complete: vector stores available', { vectorStoreCount: vectorStoreIds.length, fileCount: fileIds.length });
     } else {
-      console.warn('⚠️ PDF attachment complete: NO vector stores, using file_ids for file_search', { fileCount: fileIds.length });
+      console.warn('⚠️ PDF attachment complete: NO vector stores created');
+      console.warn('   Files uploaded successfully: ', fileIds.length);
+      console.warn('   Fallback: Using table of contents and chat completions instead of file_search');
+      console.log('📋 OpenAI SDK Info:', {
+        sdkHasVectorStores: !!openai.beta?.vectorStores,
+        vectorStoresType: typeof openai.beta?.vectorStores,
+        betaAPIMethods: openai.beta ? Object.keys(openai.beta).filter(k => typeof openai.beta[k] === 'object' || typeof openai.beta[k] === 'function').slice(0, 10) : 'N/A'
+      });
     }
     
     return {
