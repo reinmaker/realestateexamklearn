@@ -1200,6 +1200,16 @@ export function convertOldFormatToNew(reference: string, questionText?: string):
       if (text.includes('היטל השבחה') || text.includes('סעיף 196א')) {
         return appendReferenceNote(`חוק התכנון והבנייה – סעיף 196א`);
       }
+      if (text.includes('עבודות') || text.includes('בנייה') || text.includes('מחייבות') || text.includes('היתר')) {
+        // Building and construction works that require permits
+        if (text.includes('קבלת היתר') || text.includes('מחייבות')) {
+          return appendReferenceNote(`חוק התכנון והבנייה – סעיף 113`);
+        }
+        if (text.includes('עבודות') && text.includes('בנייה')) {
+          return appendReferenceNote(`חוק התכנון והבנייה – סעיף 76`);
+        }
+        return appendReferenceNote(`חוק התכנון והבנייה – סעיף 113`);
+      }
     } else if (chapter === 8) {
       // פרק 8: מיסוי מקרקעין
       if (text.includes('מס רכישה') || text.includes('סעיף 9')) {
@@ -1402,14 +1412,21 @@ function getBookReferenceByKeywords(questionText: string): string | null {
   
   // פרק 7: תכנון ובנייה
   if (text.includes('תוכנית מיתאר') || text.includes('ועדה מקומית') || text.includes('ועדה מחוזית') || 
-      text.includes('היטל השבחה') || text.includes('תכנון') || text.includes('בנייה')) {
-    if (text.includes('תוכנית מיתאר מקומית')) return 'חלק 1 - פרק 7: תכנון ובנייה, עמוד 108';
-    if (text.includes('תוכנית מיתאר מחוזית')) return 'חלק 1 - פרק 7: תכנון ובנייה, עמוד 108';
-    if (text.includes('תוכנית מיתאר ארצית')) return 'חלק 1 - פרק 7: תכנון ובנייה, עמוד 107';
-    if (text.includes('ועדה מקומית')) return 'חלק 1 - פרק 7: תכנון ובנייה, עמוד 100';
-    if (text.includes('ועדה מחוזית')) return 'חלק 1 - פרק 7: תכנון ובנייה, עמוד 94';
-    if (text.includes('היטל השבחה')) return 'חלק 1 - פרק 7: תכנון ובנייה, עמוד 125';
-    return 'חלק 1 - פרק 7: תכנון ובנייה, עמוד 90';
+      text.includes('היטל השבחה') || text.includes('תכנון') || text.includes('בנייה') || text.includes('עבודות') || text.includes('בנייה') || text.includes('היתר בנייה')) {
+    if (text.includes('תוכנית מיתאר מקומית')) return 'חלק 1 - פרק 7: תכנון ובנייה - סעיף 108';
+    if (text.includes('תוכנית מיתאר מחוזית')) return 'חלק 1 - פרק 7: תכנון ובנייה - סעיף 108';
+    if (text.includes('תוכנית מיתאר ארצית')) return 'חלק 1 - פרק 7: תכנון ובנייה - סעיף 107';
+    if (text.includes('ועדה מקומית')) return 'חלק 1 - פרק 7: תכנון ובנייה - סעיף 100';
+    if (text.includes('ועדה מחוזית')) return 'חלק 1 - פרק 7: תכנון ובנייה - סעיף 94';
+    if (text.includes('היטל השבחה')) return 'חלק 1 - פרק 7: תכנון ובנייה - סעיף 125';
+    if (text.includes('עבודות') || text.includes('היתר')) {
+      // Building and construction works require permits - סעיף 76, סעיף 113
+      if (text.includes('קבלת היתר') || text.includes('היתר בנייה') || text.includes('מחייבות') || text.includes('עבודות')) {
+        return 'חלק 1 - פרק 7: תכנון ובנייה - סעיף 113';
+      }
+      return 'חלק 1 - פרק 7: תכנון ובנייה - סעיף 76';
+    }
+    return 'חלק 1 - פרק 7: תכנון ובנייה - סעיף 90';
   }
   
   // פרק 8: מיסוי מקרקעין
@@ -2182,7 +2199,8 @@ async function getBookReferenceOpenAI(
     // Continue with chat completions - don't throw error
   }
   
-  if (pdfAttachment && (pdfAttachment.vectorStoreIds.length > 0 || (pdfAttachment.fileIds && pdfAttachment.fileIds.length > 0))) {
+  // Use Assistants API only if vector stores are available, otherwise skip
+  if (pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
     try {
       
       // Create an Assistant with file_search tool
@@ -2264,6 +2282,9 @@ async function getBookReferenceOpenAI(
       while (runStatus === 'queued' || runStatus === 'in_progress') {
         await new Promise(resolve => setTimeout(resolve, 1000));
         // Use stored threadId and runId to avoid any potential issues
+        if (!threadId || !runId) {
+          throw new Error(`Missing IDs: threadId=${threadId}, runId=${runId}`);
+        }
         const runInfo = await openai.beta.threads.runs.retrieve(threadId, runId);
         runStatus = runInfo.status;
         if (runStatus === 'failed' || runStatus === 'cancelled' || runStatus === 'expired') {
@@ -2342,6 +2363,8 @@ async function getBookReferenceOpenAI(
   // Fallback to chat completions if Assistants API fails or PDF is not available
   const prompt = `אתה מומחה בניתוח שאלות למבחן הרישוי למתווכי מקרקעין בישראל. משימתך היא לקבוע את ההפניה המדויקת לספר "חלק 1" על בסיס נושא השאלה.
 
+⚠️ CRITICAL: כל הפניה MUST כלול מספר סעיף! אם אין סעיף ספציפי בשאלה, תמצא את הסעיף הרלוונטי בקובץ.
+
 השאלה:
 ${questionText}
 
@@ -2354,15 +2377,18 @@ ${TABLE_OF_CONTENTS}
 
 הספרים מצורפים כקבצי PDF לניתוח זה.
 
+⚠️ CRITICAL REQUIREMENT: כל ההפניות MUST לכלול סעיף ספציפי (סעיף X)!
+
 חשוב מאוד: כל ההפניות חייבות להיות לחלק 1 של הספר בלבד, גם אם הנושא מופיע גם בחלק 2.
 
 הוראות מפורטות לקביעת ההפניה:
 1. קרא את השאלה בעיון וזהה את הנושא המשפטי המרכזי
 2. חפש בקבצי ה-PDF (חלק 1 וחלק 2) את הנושא הספציפי מהשאלה
-   - חפש מילות מפתח מהשאלה (למשל: "גילוי", "מידע מהותי", "עניין אישי", "דמי תיווך", "הזמנה בכתב", "אחריות", "קבלן", "מסירת דירה")
-   - מצא את הסעיף המדויק שמתייחס לנושא זה (למשל: "סעיף 8", "סעיף 8(ב)", "סעיף 9", "סעיף 10", "סעיף 4א", "סעיף 4ב")
+   - חפש מילות מפתח מהשאלה (למשל: "גילוי", "מידע מהותי", "עניין אישי", "דמי תיווך", "הזמנה בכתב", "אחריות", "קבלן", "מסירת דירה", "עבודות בנייה", "היתר")
+   - מצא את הסעיף המדויק שמתייחס לנושא זה (למשל: "סעיף 8", "סעיף 8(ב)", "סעיף 9", "סעיף 10", "סעיף 4א", "סעיף 4ב", "סעיף 113", "סעיף 76")
    - אם השאלה על "מידע מהותי" או "חובת המתווה לגלות", חפש "סעיף 8" או "סעיף 8(ב)"
    - אם השאלה על "אחריות קבלן" או "מסירת דירה חדשה", חפש "סעיף 4ב" או "אחריות"
+   - אם השאלה על "עבודות בנייה" או "עבודות המחייבות היתר", חפש "סעיף 113" או "סעיף 76"
    - קרא את הטקסט של הסעיף כדי לוודא שהוא מתייחס לנושא מהשאלה
    - מצא את מספר העמוד המדויק שבו מופיע הסעיף (העמוד מופיע בתחילת כל עמוד בתוכן)
    - חשוב: תמיד החזר הפניה לחלק 1 בלבד, גם אם הנושא מופיע גם בחלק 2
@@ -2370,12 +2396,13 @@ ${TABLE_OF_CONTENTS}
 4. ודא שמספר הסעיף שמצאת בקובץ ה-PDF תואם לנושא השאלה
 5. השתמש במספר העמוד המדויק שמופיע בקובץ ה-PDF (חלק 1)
 6. החזר הפניה בפורמט מדויק:
-   - אם יש סעיף ספציפי: "[שם החוק/התקנה] – סעיף X"
-   - אם זה תחילת חוק/תקנה: "[שם החוק/התקנה]"
-   - דוגמאות:
+   - ⚠️ MUST INCLUDE SECTION NUMBER: "[שם החוק/התקנה] – סעיף X"
+   - NEVER return just the law name without a section!
+   - דוגמאות (CORRECT):
      * "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 9"
-     * "תקנות המתווכים במקרקעין (פרטי הזמנה בכתב), התשנ"ז–1997"
+     * "תקנות המתווכים במקרקעין (פרטי הזמנה בכתב), התשנ"ז–1997 – סעיף 1"
      * "חוק הגנת הצרכן, התשמ"א–1981 – סעיף 4א"
+     * "חוק התכנון והבנייה, התשכ"ה–1965 – סעיף 113"
 
 מיפוי נושאים לפרקים:
 - מתווכים, דמי תיווך, רישיון מתווך, הזמנה בכתב → פרק 1: מתווכים
@@ -2480,31 +2507,57 @@ ${TABLE_OF_CONTENTS}
     return startsAtMatch[0];
   }
   
-  // If old format is returned, log warning but don't throw error - let it pass through
-  // The UI will display it, but ideally AI should use new format
-  if (cleanedContent.startsWith('חלק 1 - פרק')) {
-    console.warn('getBookReferenceOpenAI: AI returned old format reference, should use new format:', cleanedContent);
-    return cleanedContent;
-  }
-
-  // Try old format extraction as last resort
-  const oldMatch = cleanedContent.match(/חלק 1 - פרק \d+: [^,]+,\s*עמוד \d+/);
-  if (oldMatch) {
-    console.warn('getBookReferenceOpenAI: AI returned old format reference, should use new format:', oldMatch[0]);
-    return oldMatch[0];
+  // CRITICAL: Validate that reference includes section number
+  const hasSectionNumber = /סעיף\s+\d+[א-ת]?|\(סעיף\s+\d+/.test(cleanedContent);
+  
+  if (!hasSectionNumber && (cleanedContent.includes('חוק') || cleanedContent.includes('תקנות'))) {
+    console.warn(`⚠️ Reference missing section number for: "${questionText.substring(0, 50)}..."`);
+    console.warn(`  Returned: "${cleanedContent}"`);
+    
+    // Try keyword-based fallback with conversion
+    try {
+      const keywordRef = getBookReferenceByKeywords(questionText);
+      if (keywordRef) {
+        const convertedRef = convertOldFormatToNew(keywordRef, questionText);
+        console.log(`  Fallback to keyword: "${convertedRef}"`);
+        return convertedRef;
+      }
+    } catch (error) {
+      console.warn('  Keyword fallback failed');
+    }
   }
   
-  // Accept any reference that contains a law name, regulation, or section (more lenient)
-  if (cleanedContent && (
-    cleanedContent.includes('חוק') ||  // Contains "חוק" (law)
-    cleanedContent.includes('תקנות') ||  // Contains "תקנות" (regulations)
-    cleanedContent.includes('סעיף')  // Contains "סעיף" (section)
-  )) {
-    return cleanedContent;
+  // If old format is returned, convert it
+  if (cleanedContent.startsWith('חלק 1 - פרק')) {
+    console.warn('⚠️ Converting old format:', cleanedContent);
+    return convertOldFormatToNew(cleanedContent, questionText);
   }
 
-  // If we still don't have a valid reference, log warning but return it anyway
-  console.warn('getBookReferenceOpenAI: Reference format not recognized, but returning anyway:', cleanedContent);
+  // Try old format extraction and convert
+  const oldMatch = cleanedContent.match(/חלק 1 - פרק \d+: [^,]+,\s*עמוד \d+/);
+  if (oldMatch) {
+    console.warn('⚠️ Converting old format:', oldMatch[0]);
+    return convertOldFormatToNew(oldMatch[0], questionText);
+  }
+  
+  // Accept any reference that contains law name with section number
+  if (cleanedContent && hasSectionNumber && (cleanedContent.includes('חוק') || cleanedContent.includes('תקנות'))) {
+    return cleanedContent;
+  }
+  
+  // If no section number found, it's likely inaccurate - log and attempt keyword fallback
+  if (!hasSectionNumber) {
+    console.warn(`⚠️ Final attempt: no section number in: "${cleanedContent}"`);
+    try {
+      const keywordRef = getBookReferenceByKeywords(questionText);
+      if (keywordRef) {
+        return convertOldFormatToNew(keywordRef, questionText);
+      }
+    } catch (error) {
+      // continue
+    }
+  }
+
   return cleanedContent;
 }
 

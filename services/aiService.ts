@@ -221,12 +221,20 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
   let pdfAttachment: any = null;
   try {
     pdfAttachment = await attachBookPdfsToOpenAI(openai);
+    if (pdfAttachment?.vectorStoreIds?.length > 0) {
+      console.log(`✅ PDFs successfully attached with ${pdfAttachment.vectorStoreIds.length} vector store(s)`);
+    } else if (pdfAttachment?.fileIds?.length > 0) {
+      console.log(`✅ PDFs uploaded with ${pdfAttachment.fileIds.length} file(s) (no vector stores)`);
+    } else {
+      console.warn('⚠️ PDFs attached but no vector stores or file IDs found');
+    }
   } catch (error) {
-    console.warn('OpenAI generateQuiz: Failed to attach PDFs to OpenAI, falling back to chat completions:', error);
+    console.warn('❌ OpenAI generateQuiz: Failed to attach PDFs to OpenAI, falling back to chat completions:', error);
   }
   
-  if (pdfAttachment && (pdfAttachment.vectorStoreIds.length > 0 || (pdfAttachment.fileIds && pdfAttachment.fileIds.length > 0))) {
-    // STEP 2: Use Assistants API with file_search (PDFs already uploaded)
+  // Use Assistants API with file_search if PDFs are available
+  if (pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
+    // STEP 2: Use Assistants API with file_search (PDFs already uploaded and indexed)
     try {
       const prompt = `אתה מומחה ביצירת שאלות למבחן הרישוי למתווכי מקרקעין בישראל. 
 
@@ -324,19 +332,38 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
           : undefined
       });
       
+      if (!assistant || !assistant.id) {
+        throw new Error('Failed to create assistant: assistant.id is undefined');
+      }
+      
       // Create a Thread
       const thread = await openai.beta.threads.create();
       
+      if (!thread || !thread.id) {
+        throw new Error('Failed to create thread: thread.id is undefined');
+      }
+      
+      // Store thread ID and assistant ID in consts to ensure they don't get lost
+      const threadId = thread.id;
+      const assistantId = assistant.id;
+      
       // Add user message with the question
-      await openai.beta.threads.messages.create(thread.id, {
+      await openai.beta.threads.messages.create(threadId, {
         role: 'user',
         content: prompt
       });
       
       // Run the Assistant
-      const run = await openai.beta.threads.runs.create(thread.id, {
-        assistant_id: assistant.id
+      const run = await openai.beta.threads.runs.create(threadId, {
+        assistant_id: assistantId
       });
+      
+      if (!run || !run.id) {
+        throw new Error('Failed to create run: run.id is undefined');
+      }
+      
+      // Store run ID in const to ensure it doesn't get lost
+      const runId = run.id;
       
       // Wait for the run to complete
       let runStatus = run.status;
@@ -344,7 +371,11 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
       const maxWaitTime = 120; // 2 minutes timeout
       while ((runStatus === 'queued' || runStatus === 'in_progress') && waitCount < maxWaitTime) {
         await new Promise(resolve => setTimeout(resolve, 2000));
-        const runInfo = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+        // Double-check IDs are still valid before making the call
+        if (!threadId || !runId) {
+          throw new Error(`Invalid IDs before retrieve: threadId=${threadId}, runId=${runId}`);
+        }
+        const runInfo = await openai.beta.threads.runs.retrieve(threadId, runId);
         runStatus = runInfo.status;
         waitCount++;
         if (runStatus === 'failed' || runStatus === 'cancelled') {
@@ -357,7 +388,7 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
       }
       
       // Retrieve the assistant's response
-      const messages = await openai.beta.threads.messages.list(thread.id);
+      const messages = await openai.beta.threads.messages.list(threadId);
       const assistantMessage = messages.data.find((msg: any) => msg.role === 'assistant');
       
       if (!assistantMessage || !assistantMessage.content[0] || assistantMessage.content[0].type !== 'text') {
@@ -860,9 +891,13 @@ ${blockTexts}
           explanation: questionData.explanation || '',
           bookReference: bookReference,
         });
-      } catch (error) {
+      } catch (error: any) {
+        // If circuit breaker is open, fail the entire function to trigger fallback
+        if (error?.message?.includes('Circuit breaker')) {
+          throw new Error(`Circuit breaker opened during generation: retrieve-blocks service is unavailable`);
+        }
         console.warn(`Error generating question ${i + 1}:`, error);
-        // Continue to next question
+        // Continue to next question for other errors
       }
     }
 
@@ -1055,7 +1090,9 @@ async function generateFlashcardsOpenAI(documentContent?: string, count: number 
   // Add randomization seed to prompt for variety
   const randomSeed = Math.random().toString(36).substring(7);
   
-  const prompt = `אתה מורה מומחה למבחן התיווך הישראלי. תפקידך הוא לזהות את עקרונות הליבה המשפטיים, ההגדרות והכללים המרכזיים הנבחנים במסמך המצורף. בהתבסס על כך, צור סט חדש וייחודי של ${count} כרטיסיות לימוד בפורמט של שאלה-תשובה. חשוב: נסה לבחור מושגים שונים ונושאים שונים מאלו שכבר נבחרו בעבר. כל כרטיסייה צריכה להתמקד במושג אחד חשוב. השאלות צריכות להיות ברורות. התשובות חייבות להיות קצרות ותמציתיות באופן קיצוני - משפט קצר אחד או שניים לכל היותר. יש לנסח אותן בשפה פשוטה וישירה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד לא בהדגשה (ללא כוכביות **). אל תהפוך את שאלות המבחן הקיימות לכרטיסיות; במקום זאת, זקק מהן את הידע המשפטי הבסיסי. כל התוכן חייב להיות בעברית.
+  const prompt = `אתה מורה מומחה למבחן התיווך הישראלי. תפקידך הוא לזהות את עקרונות הליבה המשפטיים, ההגדרות והכללים המרכזיים הנבחנים במסמך המצורף. בהתבסס על כך, צור סט חדש וייחודי של ${count} כרטיסיות לימוד בפורמט של שאלה-תשובה. חשוב: נסה לבחור מושגים שונים ונושאים שונים מאלו שכבר נבחרו בעבור. כל כרטיסייה צריכה להתמקד במושג אחד חשוב. השאלות צריכות להיות ברורות. התשובות חייבות להיות קצרות ותמציתיות באופן קיצוני - משפט קצר אחד או שניים לכל היותר. יש לנסח אותן בשפה פשוטה וישירה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד לא בהדגשה (ללא כוכביות **). אל תהפוך את שאלות המבחן הקיימות לכרטיסיות; במקום זאת, זקק מהן את הידע המשפטי הבסיסי. כל התוכן חייב להיות בעברית.
+
+חשוב מאוד - חובה מוחלטת: לכל כרטיסייה, חפש בקובץ חלק 1 (Part 1) את הסעיף המדויק, את שם החוק המלא עם השנה, ואת מספר העמוד. הפניה חייבת להיות בפורמט: "[שם החוק המלא עם שנה] – סעיף X מופיע בעמ' Y בקובץ." לדוגמה: "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 8 מופיע בעמ' 2 בקובץ."
 
 המסמך המכיל מבחנים קודמים הוא:
 ---
@@ -1066,13 +1103,14 @@ ${documentContent}
 [
   {
     "question": "שאלה",
-    "answer": "תשובה קצרה"
+    "answer": "תשובה קצרה",
+    "bookReference": "[שם החוק המלא עם שנה] – סעיף X מופיע בעמ' Y בקובץ."
   }
 ]`;
 
   const response = await openai.responses.create({
     model: openAIModel,
-    instructions: 'אתה עוזר מומחה ביצירת כרטיסיות לימוד. אתה תמיד מחזיר JSON בפורמט הבא: {"flashcards": [{"question": "...", "answer": "..."}]} ללא טקסט נוסף.',
+    instructions: 'אתה עוזר מומחה ביצירת כרטיסיות לימוד. לכל כרטיסייה, חפש בחלק 1 את הסעיף המדויק והחוק. אתה תמיד מחזיר JSON בפורמט הבא: {"flashcards": [{"question": "...", "answer": "...", "bookReference": "[שם החוק] – סעיף X מופיע בעמ\' Y בקובץ."}]} ללא טקסט נוסף.',
     input: prompt,
     text: {
       format: {
@@ -1117,6 +1155,8 @@ async function generateFlashcardsGemini(documentContent?: string, count: number 
   
   const prompt = `אתה מורה מומחה למבחן התיווך הישראלי. תפקידך הוא לזהות את עקרונות הליבה המשפטיים, ההגדרות והכללים המרכזיים הנבחנים במסמך המצורף. בהתבסס על כך, צור סט של ${count} כרטיסיות לימוד בפורמט של שאלה-תשובה. כל כרטיסייה צריכה להתמקד במושג אחד חשוב. השאלות צריכות להיות ברורות. התשובות חייבות להיות קצרות ותמציתיות באופן קיצוני - משפט קצר אחד או שניים לכל היותר. יש לנסח אותן בשפה פשוטה וישירה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד לא בהדגשה (ללא כוכביות **). אל תהפוך את שאלות המבחן הקיימות לכרטיסיות; במקום זאת, זקק מהן את הידע המשפטי הבסיסי. כל התוכן חייב להיות בעברית.
 
+חשוב מאוד - חובה מוחלטת: לכל כרטיסייה, חפש בקובץ חלק 1 (Part 1) את הסעיף המדויק, את שם החוק המלא עם השנה, ואת מספר העמוד. הפניה חייבת להיות בפורמט: "[שם החוק המלא עם שנה] – סעיף X מופיע בעמ' Y בקובץ."
+
 המסמך המכיל מבחנים קודמים הוא:
 ---
 ${documentContent}
@@ -1129,8 +1169,9 @@ ${documentContent}
       properties: {
         question: { type: Type.STRING },
         answer: { type: Type.STRING },
+        bookReference: { type: Type.STRING },
       },
-      required: ["question", "answer"],
+      required: ["question", "answer", "bookReference"],
     },
   };
 
