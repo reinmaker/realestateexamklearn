@@ -314,12 +314,14 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
 חשוב מאוד - חובה: לפני יצירת כל שאלה, בדוק את הנושאים של השאלות שכבר יצרת. וודא שהשאלה החדשה היא על נושא שונה לחלוטין מהשאלות הקודמות. אם כבר יצרת שאלה על "מתווכים", אל תיצור עוד שאלה על "מתווכים" - בחר נושא אחר כמו "הגנת הצרכן" או "מכר דירות". כל שאלה חייבת להיות על נושא ייחודי שלא הופיע בשאלות הקודמות.
 
 החזר את השאלות ב-JSON בלבד, ללא טקסט נוסף.`,
-        tools: [{ type: 'file_search' }],
-        tool_resources: {
-          file_search: pdfAttachment.vectorStoreIds.length > 0
-            ? { vector_store_ids: pdfAttachment.vectorStoreIds }
-            : { file_ids: pdfAttachment.fileIds || [] }
-        }
+        tools: pdfAttachment.vectorStoreIds.length > 0 ? [{ type: 'file_search' }] : [],
+        tool_resources: pdfAttachment.vectorStoreIds.length > 0
+          ? {
+              file_search: {
+                vector_store_ids: pdfAttachment.vectorStoreIds
+              }
+            }
+          : undefined
       });
       
       // Create a Thread
@@ -576,20 +578,19 @@ ${TABLE_OF_CONTENTS}
   }
 ]`;
 
-  const response = await openai.chat.completions.create({
+  const response = await openai.responses.create({
     model: openAIModel,
-    messages: [
-      { 
-        role: 'system', 
-        content: 'אתה עוזר מומחה ביצירת שאלות למבחן. לפני יצירת כל שאלה, חפש את הנושא בקבצי ה-PDF, מצא את ההפניה המדויקת, וודא שההפניה תואמת לנושא השאלה שאתה עומד ליצור, ורק אז צור את השאלה עם ההפניה המתאימה. אתה תמיד מחזיר JSON בפורמט הבא: {"questions": [{"question": "...", "options": ["...", "..."], "correctAnswerIndex": 0, "explanation": "...", "bookReference": "[שם החוק/התקנה המלא עם שנה] – סעיף X מופיע בעמ\' Y בקובץ."}]} ללא טקסט נוסף.' 
-      },
-      { role: 'user', content: prompt }
-    ],
-    response_format: { type: 'json_object' },
+    instructions: 'אתה עוזר מומחה ביצירת שאלות למבחן. לפני יצירת כל שאלה, חפש את הנושא בקבצי ה-PDF, מצא את ההפניה המדויקת, וודא שההפניה תואמת לנושא השאלה שאתה עומד ליצור, ורק אז צור את השאלה עם ההפניה המתאימה. אתה תמיד מחזיר JSON בפורמט הבא: {"questions": [{"question": "...", "options": ["...", "..."], "correctAnswerIndex": 0, "explanation": "...", "bookReference": "[שם החוק/התקנה המלא עם שנה] – סעיף X מופיע בעמ\' Y בקובץ."}]} ללא טקסט נוסף.',
+    input: prompt,
+    text: {
+      format: {
+        type: 'json_object'
+      }
+    },
     temperature: 0.9,
   });
 
-  const content = response.choices[0]?.message?.content;
+  const content = response.output_text;
   if (!content) {
     throw new Error('No response from OpenAI');
   }
@@ -731,6 +732,23 @@ async function generateQuizWithRetrieval(count: number = 10): Promise<QuizQuesti
     // Import Supabase client
     const { supabase } = await import('./authService');
     
+    // Early check: Try one retrieval call to see if circuit breaker is open
+    // If it is, immediately fall back to regular generation instead of trying all questions
+    try {
+      const { invokeRetrieveBlocks } = await import('./bookReferenceService');
+      await invokeRetrieveBlocks(
+        'חוקים ותקנות בנושא מתווכים במקרקעין',
+        'part1',
+        3
+      );
+    } catch (err: any) {
+      // If circuit breaker is open, immediately fall back
+      if (err?.message?.includes('Circuit breaker')) {
+        throw new Error('Circuit breaker is open: retrieve-blocks service is unavailable');
+      }
+      // For other errors on first call, we'll still try (might be transient)
+    }
+    
     const questions: QuizQuestion[] = [];
     
     // Generate questions one at a time to ensure each has proper citation
@@ -758,8 +776,8 @@ async function generateQuizWithRetrieval(count: number = 10): Promise<QuizQuesti
           retrieveError = err;
           // Check if circuit breaker is open
           if (err?.message?.includes('Circuit breaker')) {
-            console.warn(`Circuit breaker is open, skipping question ${i + 1}`);
-            continue;
+            // If circuit breaker opens during generation, throw to trigger fallback
+            throw new Error('Circuit breaker opened during generation: retrieve-blocks service is unavailable');
           }
         }
 
@@ -794,20 +812,19 @@ ${blockTexts}
 
 חשוב: bookReference חייב להיות מבוסס על העמודים והבלוקים ב-CONTEXT. השתמש בעמודים מהבלוקים שסופקו.`;
 
-        const response = await openai.chat.completions.create({
+        const response = await openai.responses.create({
           model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: 'אתה מומחה ביצירת שאלות למבחן. אתה תמיד מחזיר JSON בלבד ללא טקסט נוסף.',
-            },
-            { role: 'user', content: prompt },
-          ],
+          instructions: 'אתה מומחה ביצירת שאלות למבחן. אתה תמיד מחזיר JSON בלבד ללא טקסט נוסף.',
+          input: prompt,
           temperature: 0.3,
-          response_format: { type: 'json_object' },
+          text: {
+            format: {
+              type: 'json_object'
+            }
+          },
         });
 
-        const content = response.choices[0]?.message?.content;
+        const content = response.output_text;
         if (!content) {
           console.warn(`No response for question ${i + 1}, skipping...`);
           continue;
@@ -864,7 +881,18 @@ export async function generateQuiz(documentContent?: string, count: number = 10)
   // Try retrieval-first approach
   try {
     return await generateQuizWithRetrieval(count);
-  } catch (error) {
+  } catch (error: any) {
+    // Check if the error is due to circuit breaker being open (service unavailable)
+    if (error?.message?.includes('Circuit breaker')) {
+      console.warn('retrieve-blocks service is unavailable (circuit breaker open), skipping retrieval-based generation');
+      // Skip retrieval entirely and use direct AI generation
+      return tryWithFallback(
+        () => generateQuizOpenAI(documentContent, count),
+        () => generateQuizGemini(documentContent, count),
+        "נכשל ביצירת שאלות הבוחן."
+      );
+    }
+    
     console.warn('Retrieval-based generation failed, falling back to AI:', error);
     // Fallback to existing AI-based approach
     // Try OpenAI first, then fallback to Gemini
@@ -906,17 +934,19 @@ ${documentContent}
   "explanation": "הסבר קצר"
 }`;
 
-    const response = await openai.chat.completions.create({
+    const response = await openai.responses.create({
       model: openAIModel,
-      messages: [
-        { role: 'system', content: 'אתה עוזר מומחה. אתה תמיד מחזיר JSON בלבד, ללא טקסט נוסף.' },
-        { role: 'user', content: prompt }
-      ],
-      response_format: { type: 'json_object' },
+      instructions: 'אתה עוזר מומחה. אתה תמיד מחזיר JSON בלבד, ללא טקסט נוסף.',
+      input: prompt,
+      text: {
+        format: {
+          type: 'json_object'
+        }
+      },
       temperature: 0.3,
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = response.output_text;
     if (!content) {
       throw new Error('No response from OpenAI');
     }
@@ -1040,20 +1070,19 @@ ${documentContent}
   }
 ]`;
 
-  const response = await openai.chat.completions.create({
+  const response = await openai.responses.create({
     model: openAIModel,
-    messages: [
-      { 
-        role: 'system', 
-        content: 'אתה עוזר מומחה ביצירת כרטיסיות לימוד. אתה תמיד מחזיר JSON בפורמט הבא: {"flashcards": [{"question": "...", "answer": "..."}]} ללא טקסט נוסף.' 
-      },
-      { role: 'user', content: prompt }
-    ],
-    response_format: { type: 'json_object' },
+    instructions: 'אתה עוזר מומחה ביצירת כרטיסיות לימוד. אתה תמיד מחזיר JSON בפורמט הבא: {"flashcards": [{"question": "...", "answer": "..."}]} ללא טקסט נוסף.',
+    input: prompt,
+    text: {
+      format: {
+        type: 'json_object'
+      }
+    },
     temperature: 0.9, // Higher temperature for more variety in flashcards
   });
 
-  const content = response.choices[0]?.message?.content;
+  const content = response.output_text;
   if (!content) {
     throw new Error('No response from OpenAI');
   }
@@ -1320,12 +1349,9 @@ ${documentContent}
       // OpenAI implementation
       const openai = await getOpenAI();
       
-      const response = await openai.chat.completions.create({
+      const response = await openai.responses.create({
         model: openAIModel,
-        messages: [
-          { 
-            role: 'system', 
-            content: `אתה מורה מקצועי ומנוסה לניתוח ביצועים במבחן הרישוי למתווכי מקרקעין בישראל. תפקידך לספק משוב מפורט ומעודד ישירות למשתמש.
+        instructions: `אתה מורה מקצועי ומנוסה לניתוח ביצועים במבחן הרישוי למתווכי מקרקעין בישראל. תפקידך לספק משוב מפורט ומעודד ישירות למשתמש.
 
 **חשוב מאוד - כתוב בגוף שני, לא בגוף שלישי:**
 - תמיד החזר JSON עם strengths, weaknesses, ו-recommendations
@@ -1333,15 +1359,17 @@ ${documentContent}
 - weaknesses: רשימה של עד 3 נושאים שבהם המשתמש מתקשה, עם הסבר קצר לכל נושא בגוף שני (אתה/לך/עליך) מה הבעיה ומה צריך לשפר. אם כל התשובות נכונות, החזר רשימה ריקה.
 - recommendations: המלצה תמציתית ומעשית כתובה בגוף שני (אתה/לך/עליך), מבוססת על החולשות. אם אין חולשות, ספק המלצה כללית.
 - **כל הטקסט חייב להיות בגוף שני (אתה/לך/עליך/שלך), לא בגוף שלישי (המשתמש/הוא/שלו)**
-- כל התוכן בעברית.`
-          },
-          { role: 'user', content: prompt }
-        ],
-        response_format: { type: 'json_object' },
+- כל התוכן בעברית.`,
+        input: prompt,
+        text: {
+          format: {
+            type: 'json_object'
+          }
+        },
         temperature: 0.5, // Slightly higher for more detailed explanations
       });
 
-      const content = response.choices[0]?.message?.content?.trim();
+      const content = response.output_text?.trim();
       if (!content) {
         throw new Error('No response from OpenAI');
       }
@@ -1499,13 +1527,13 @@ async function continueChatOpenAI(chat: any, message: string, history: ChatMessa
   // Add current message
   messages.push({ role: 'user', content: message });
   
-  const response = await openai.chat.completions.create({
+  const response = await openai.responses.create({
     model: openAIModel,
-    messages: messages as any,
+    input: messages as any,
     temperature: 0.7,
   });
   
-  const content = response.choices[0]?.message?.content;
+  const content = response.output_text;
   if (!content) {
     throw new Error('No response from OpenAI');
   }
@@ -1570,19 +1598,14 @@ ${documentContent}
 
 ספק רמז קצר ומעודן שיעזור להבין את התשובה הנכונה, מבלי לחשוף אותה ישירות. דבר בצורה טבעית ושיחה. אל תשתמש בשם המשתמש. הרמז צריך להיות קצר מאוד (משפט אחד או שניים). השב בעברית.`;
 
-  const response = await openai.chat.completions.create({
+  const response = await openai.responses.create({
     model: openAIModel,
-    messages: [
-      { 
-        role: 'system', 
-        content: 'אתה מורה פרטי ידידותי וסבלני למבחן התיווך הישראלי. אתה תמיד מחזיר תשובה קצרה ובעברית.' 
-      },
-      { role: 'user', content: prompt }
-    ],
+    instructions: 'אתה מורה פרטי ידידותי וסבלני למבחן התיווך הישראלי. אתה תמיד מחזיר תשובה קצרה ובעברית.',
+    input: prompt,
     temperature: 0.7,
   });
 
-  const content = response.choices[0]?.message?.content;
+  const content = response.output_text;
   if (!content) {
     throw new Error('No response from OpenAI');
   }
@@ -1712,17 +1735,15 @@ ${isCorrect ?
     async () => {
       // OpenAI implementation
       const openai = await getOpenAI();
-      const response = await openai.chat.completions.create({
+      const response = await openai.responses.create({
         model: openAIModel,
-        messages: [
-          { role: 'system', content: systemInstruction },
-          { role: 'user', content: prompt }
-        ],
+        instructions: systemInstruction,
+        input: prompt,
         temperature: 0.8,
-        max_tokens: 80, // Short messages only
+        max_output_tokens: 80, // Short messages only
       });
 
-      const content = response.choices[0]?.message?.content?.trim();
+      const content = response.output_text?.trim();
       if (!content) {
         throw new Error('No response from OpenAI');
       }
@@ -2001,20 +2022,19 @@ ${documentContent}
   }
 ]`;
 
-  const response = await openai.chat.completions.create({
+  const response = await openai.responses.create({
     model: openAIModel,
-    messages: [
-      { 
-        role: 'system', 
-        content: 'אתה עוזר מומחה ביצירת כרטיסיות לימוד ממוקדות. אתה תמיד מחזיר JSON בפורמט הבא: {"flashcards": [{"question": "...", "answer": "..."}]} ללא טקסט נוסף.' 
-      },
-      { role: 'user', content: prompt }
-    ],
-    response_format: { type: 'json_object' },
+    instructions: 'אתה עוזר מומחה ביצירת כרטיסיות לימוד ממוקדות. אתה תמיד מחזיר JSON בפורמט הבא: {"flashcards": [{"question": "...", "answer": "..."}]} ללא טקסט נוסף.',
+    input: prompt,
+    text: {
+      format: {
+        type: 'json_object'
+      }
+    },
     temperature: 0.9, // Higher temperature for more variety in flashcards
   });
 
-  const content = response.choices[0]?.message?.content;
+  const content = response.output_text;
   if (!content) {
     throw new Error('No response from OpenAI');
   }
@@ -2120,20 +2140,19 @@ ${documentContentText}
   }
 ]`;
 
-  const response = await openai.chat.completions.create({
+  const response = await openai.responses.create({
     model: openAIModel,
-    messages: [
-      { 
-        role: 'system', 
-        content: 'אתה עוזר מומחה ביצירת שאלות ממוקדות למבחן. אתה תמיד מחזיר JSON בפורמט הבא: {"questions": [{"question": "...", "options": ["...", "..."], "correctAnswerIndex": 0, "explanation": "..."}]} ללא טקסט נוסף.' 
-      },
-      { role: 'user', content: prompt }
-    ],
-    response_format: { type: 'json_object' },
+    instructions: 'אתה עוזר מומחה ביצירת שאלות ממוקדות למבחן. אתה תמיד מחזיר JSON בפורמט הבא: {"questions": [{"question": "...", "options": ["...", "..."], "correctAnswerIndex": 0, "explanation": "..."}]} ללא טקסט נוסף.',
+    input: prompt,
+    text: {
+      format: {
+        type: 'json_object'
+      }
+    },
     temperature: 0.9, // Higher temperature for more variety in flashcards
   });
 
-  const content = response.choices[0]?.message?.content;
+  const content = response.output_text;
   if (!content) {
     throw new Error('No response from OpenAI');
   }

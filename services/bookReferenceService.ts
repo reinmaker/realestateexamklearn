@@ -532,7 +532,7 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
         // Delete uploaded files
         for (const fileId of uploadedFiles) {
           try {
-            await openai.files.del(fileId);
+            await openai.files.delete(fileId);
           } catch (error) {
             console.warn('Failed to delete uploaded file:', fileId, error);
           }
@@ -562,7 +562,7 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
       }
       for (const fileId of uploadedFiles) {
         try {
-          await openai.files.del(fileId);
+          await openai.files.delete(fileId);
         } catch (e) {
           // Ignore cleanup errors
         }
@@ -1543,18 +1543,64 @@ export function validateReferenceMatchesQuestion(
   // Extract key topics from the question
   const questionTopics: string[] = [];
   
+  // Check for specific law names mentioned in questions
+  if (questionLower.includes('חוק החוזים') || questionLower.includes('הפרת חוזה') || (questionLower.includes('סנקציות') && questionLower.includes('חוזה'))) {
+    questionTopics.push('חוק החוזים', 'חוזה');
+  }
+  if (questionLower.includes('חוק המקרקעין') || (questionLower.includes('מקרקעין') && !questionLower.includes('מיסוי'))) {
+    questionTopics.push('חוק המקרקעין', 'מקרקעין');
+  }
+  if (questionLower.includes('חוק התכנון') || questionLower.includes('חוק תכנון ובנייה') || (questionLower.includes('תכנון') && questionLower.includes('בנייה'))) {
+    questionTopics.push('תכנון ובנייה', 'חוק התכנון');
+  }
+  if (questionLower.includes('חוק הירושה') || questionLower.includes('מנהל עזבון') || questionLower.includes('עזבון')) {
+    questionTopics.push('חוק הירושה', 'ירושה');
+  }
+  if (questionLower.includes('חוק שמאי') || questionLower.includes('שמאי מקרקעין')) {
+    questionTopics.push('חוק שמאי', 'שמאי');
+  }
+  if (questionLower.includes('חוק מיסוי') || questionLower.includes('מיסוי מקרקעין') || questionLower.includes('מס רכישה') || questionLower.includes('מס שבח')) {
+    questionTopics.push('מיסוי מקרקעין', 'חוק מיסוי');
+  }
+  if (questionLower.includes('חוק ההוצאה לפועל') || questionLower.includes('עיקול מקרקעין') || (questionLower.includes('עיקול') && questionLower.includes('מקרקעין'))) {
+    questionTopics.push('חוק ההוצאה לפועל', 'עיקול');
+  }
+  if (questionLower.includes('חוק רישוי עסקים') || questionLower.includes('רישיון עסק')) {
+    questionTopics.push('חוק רישוי עסקים', 'רישוי עסקים');
+  }
+  
   // Check for specific legal topics
   if (questionLower.includes('מידע מהותי') || questionLower.includes('חובת המתווה') || questionLower.includes('חובת המתווך') || questionLower.includes('לגלות')) {
-    questionTopics.push('מידע מהותי', 'גילוי', 'חובת המתווך');
+    questionTopics.push('מידע מהותי', 'גילוי', 'חובת המתווך', 'חוק המתווכים');
   }
   if (questionLower.includes('ביטול הזמנה') || questionLower.includes('ביטול הסכם') || questionLower.includes('ביטול תיווך')) {
-    questionTopics.push('ביטול', 'הזמנה');
+    questionTopics.push('ביטול', 'הזמנה', 'חוק המתווכים', 'חוק החוזים');
   }
   if (questionLower.includes('אחריות') && (questionLower.includes('קבלן') || questionLower.includes('מסירת דירה חדשה'))) {
-    questionTopics.push('אחריות קבלן', 'סעיף 4ב');
+    questionTopics.push('אחריות קבלן', 'סעיף 4ב', 'חוק המכר');
   }
   if (questionLower.includes('חוזה אחיד')) {
-    questionTopics.push('חוזה אחיד', 'הגנת הצרכן');
+    questionTopics.push('חוזה אחיד', 'הגנת הצרכן', 'חוק החוזים האחידים', 'חוק הגנת הצרכן');
+  }
+  // Questions about brokers can reference multiple laws
+  if (questionLower.includes('מתווך') || questionLower.includes('תיווך')) {
+    questionTopics.push('חוק המתווכים', 'חוק הגנת הצרכן', 'חוק החוזים');
+  }
+  // Questions about misrepresentation/deception by brokers
+  if (questionLower.includes('הטעיה') || questionLower.includes('הונאה') || (questionLower.includes('מתווך') && (questionLower.includes('הטעיה') || questionLower.includes('הונאה')))) {
+    questionTopics.push('חוק הגנת הצרכן', 'חוק המתווכים');
+  }
+  // Questions about contracts
+  if (questionLower.includes('חוזה') && !questionLower.includes('אחיד')) {
+    questionTopics.push('חוק החוזים', 'חוק המתווכים');
+  }
+  // Questions about real estate
+  if (questionLower.includes('מקרקעין') && !questionLower.includes('מיסוי')) {
+    questionTopics.push('חוק המקרקעין', 'מקרקעי ישראל');
+  }
+  // Questions about planning and building
+  if (questionLower.includes('היטל') || questionLower.includes('השבחה')) {
+    questionTopics.push('חוק התכנון והבנייה', 'תכנון ובנייה');
   }
   if (questionLower.includes('בית משותף')) {
     questionTopics.push('בית משותף', 'מקרקעין');
@@ -1562,14 +1608,22 @@ export function validateReferenceMatchesQuestion(
   if (questionLower.includes('מכר') && questionLower.includes('דירות')) {
     questionTopics.push('מכר דירות', 'חוק המכר');
   }
-  if (questionLower.includes('דייר מוגן') || questionLower.includes('הגנת הדייר')) {
-    questionTopics.push('הגנת הדייר', 'דייר מוגן');
+  if (questionLower.includes('דייר מוגן') || questionLower.includes('הגנת הדייר') || questionLower.includes('דייר רשום') || questionLower.includes('דמי מפתח')) {
+    questionTopics.push('הגנת הדייר', 'דייר מוגן', 'חוק הגנת הדייר');
+  }
+  // Questions about "מקרקעי ישראל" (Israel Lands)
+  if (questionLower.includes('מקרקעי ישראל') || questionLower.includes('חוק יסוד: מקרקעי ישראל')) {
+    questionTopics.push('מקרקעי ישראל', 'חוק יסוד: מקרקעי ישראל', 'חוק מקרקעי ישראל');
   }
   if (questionLower.includes('תכנון') || questionLower.includes('בנייה')) {
-    questionTopics.push('תכנון ובנייה');
+    if (!questionTopics.includes('תכנון ובנייה')) {
+      questionTopics.push('תכנון ובנייה');
+    }
   }
   if (questionLower.includes('מיסוי מקרקעין') || questionLower.includes('מס רכישה') || questionLower.includes('מס שבח')) {
-    questionTopics.push('מיסוי מקרקעין');
+    if (!questionTopics.includes('מיסוי מקרקעין')) {
+      questionTopics.push('מיסוי מקרקעין');
+    }
   }
 
   // If no specific topics found, use keyword-based matching
@@ -1599,13 +1653,75 @@ export function validateReferenceMatchesQuestion(
   // Check if reference contains relevant keywords for the question topics
   let hasMatchingTopic = false;
   for (const topic of questionTopics) {
-    if (referenceLower.includes(topic.toLowerCase())) {
+    const topicLower = topic.toLowerCase();
+    // Direct match
+    if (referenceLower.includes(topicLower)) {
       hasMatchingTopic = true;
       break;
     }
+    // Check for individual words in multi-word topics
+    const topicWords = topicLower.split(/\s+/);
+    if (topicWords.length > 1) {
+      let allWordsMatch = true;
+      for (const word of topicWords) {
+        if (word.length > 2 && !referenceLower.includes(word)) {
+          allWordsMatch = false;
+          break;
+        }
+      }
+      if (allWordsMatch) {
+        hasMatchingTopic = true;
+        break;
+      }
+    }
   }
 
-  // Also check for law names that should match
+  // Also check for specific law name patterns that should match
+  if (questionTopics.includes('תכנון ובנייה') || questionTopics.includes('חוק התכנון')) {
+    if (referenceLower.includes('תכנון') && referenceLower.includes('בנייה')) {
+      hasMatchingTopic = true;
+    }
+  }
+  if (questionTopics.includes('מיסוי מקרקעין')) {
+    if (referenceLower.includes('מיסוי') && referenceLower.includes('מקרקעין')) {
+      hasMatchingTopic = true;
+    }
+  }
+  if (questionTopics.includes('חוק המתווכים')) {
+    if (referenceLower.includes('מתווכים') || referenceLower.includes('תיווך')) {
+      hasMatchingTopic = true;
+    }
+  }
+  if (questionTopics.includes('חוק הגנת הצרכן') || questionTopics.includes('הגנת הצרכן')) {
+    if (referenceLower.includes('הגנת הצרכן')) {
+      hasMatchingTopic = true;
+    }
+  }
+  if (questionTopics.includes('חוק החוזים') || questionTopics.includes('חוזה')) {
+    if (referenceLower.includes('חוק החוזים') || referenceLower.includes('חוזה')) {
+      hasMatchingTopic = true;
+    }
+  }
+  if (questionTopics.includes('חוק החוזים האחידים')) {
+    if (referenceLower.includes('חוזים אחידים') || referenceLower.includes('חוזה אחיד')) {
+      hasMatchingTopic = true;
+    }
+  }
+  if (questionTopics.includes('חוק המקרקעין') || questionTopics.includes('מקרקעין')) {
+    if (referenceLower.includes('חוק המקרקעין') || referenceLower.includes('מקרקעין')) {
+      hasMatchingTopic = true;
+    }
+  }
+  if (questionTopics.includes('מקרקעי ישראל') || questionTopics.includes('חוק יסוד: מקרקעי ישראל') || questionTopics.includes('חוק מקרקעי ישראל')) {
+    if (referenceLower.includes('מקרקעי ישראל') || referenceLower.includes('חוק יסוד: מקרקעי ישראל')) {
+      hasMatchingTopic = true;
+    }
+  }
+  if (questionTopics.includes('הגנת הדייר') || questionTopics.includes('חוק הגנת הדייר') || questionTopics.includes('דייר מוגן')) {
+    if (referenceLower.includes('הגנת הדייר') || referenceLower.includes('חוק הגנת הדייר')) {
+      hasMatchingTopic = true;
+    }
+  }
   if (questionTopics.includes('מידע מהותי') || questionTopics.includes('גילוי') || questionTopics.includes('חובת המתווך')) {
     if (referenceLower.includes('מתווכים') && (referenceLower.includes('סעיף 8') || referenceLower.includes('סעיף 10'))) {
       hasMatchingTopic = true;
@@ -1624,6 +1740,31 @@ export function validateReferenceMatchesQuestion(
   if (questionTopics.includes('מכר דירות') || questionTopics.includes('חוק המכר')) {
     if (referenceLower.includes('מכר') && referenceLower.includes('דירות')) {
       hasMatchingTopic = true;
+    }
+  }
+  
+  // Check for common law name patterns in the reference
+  // If question mentions a law name, check if reference contains it (with variations)
+  const lawNamePatterns: { [key: string]: string[] } = {
+    'חוק החוזים': ['חוק החוזים', 'חוזה'],
+    'חוק המקרקעין': ['חוק המקרקעין', 'מקרקעין'],
+    'חוק התכנון': ['חוק התכנון', 'תכנון', 'בנייה'],
+    'חוק הירושה': ['חוק הירושה', 'ירושה'],
+    'חוק שמאי': ['חוק שמאי', 'שמאי'],
+    'חוק מיסוי': ['חוק מיסוי', 'מיסוי מקרקעין', 'שבח', 'רכישה'],
+    'חוק ההוצאה לפועל': ['חוק ההוצאה לפועל', 'הוצאה לפועל', 'עיקול'],
+    'חוק רישוי עסקים': ['חוק רישוי עסקים', 'רישוי עסקים']
+  };
+  
+  for (const [lawName, patterns] of Object.entries(lawNamePatterns)) {
+    if (questionLower.includes(lawName.toLowerCase())) {
+      for (const pattern of patterns) {
+        if (referenceLower.includes(pattern.toLowerCase())) {
+          hasMatchingTopic = true;
+          break;
+        }
+      }
+      if (hasMatchingTopic) break;
     }
   }
 
@@ -1661,7 +1802,7 @@ let circuitBreakerState: {
   isOpen: false,
 };
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Open circuit after 5 consecutive failures
-const CIRCUIT_BREAKER_RESET_TIME = 30 * 1000; // Reset after 30 seconds
+const CIRCUIT_BREAKER_RESET_TIME = 10 * 1000; // Reset after 10 seconds (reduced from 30s for faster recovery)
 
 /**
  * Helper function to invoke retrieve-blocks with retry logic, caching, and circuit breaker
@@ -1884,23 +2025,40 @@ export async function getBookReferenceByAI(
       const aiChapterMatch = aiReference.match(/פרק (\d+)/);
       const keywordChapterMatch = keywordReference.match(/פרק (\d+)/);
       
-      // Check if AI returned new format
-      const aiIsNewFormat = aiReference.includes('מופיע בעמ') || aiReference.includes('מתחילות בעמ');
-      const keywordIsNewFormat = keywordReference.includes('מופיע בעמ') || keywordReference.includes('מתחילות בעמ');
+      // Check if AI returned new format (includes page number or "מופיע בעמ")
+      const aiIsNewFormat = aiReference.includes('מופיע בעמ') || 
+                           aiReference.includes('מתחילות בעמ') ||
+                           aiReference.includes('עמ\'') ||
+                           aiReference.includes('עמוד');
+      const keywordIsNewFormat = keywordReference.includes('מופיע בעמ') || 
+                                 keywordReference.includes('מתחילות בעמ') ||
+                                 keywordReference.includes('עמ\'') ||
+                                 keywordReference.includes('עמוד');
       
       if (aiIsNewFormat) {
-        // AI returned new format, validate and use it
+        // AI returned new format, validate and use it (prefer AI over keyword)
         return validateReference(aiReference, questionText);
       } else if (keywordIsNewFormat) {
         // Keyword returned new format, use it
         return validateReference(keywordReference, questionText);
       } else {
         // Both are old format, check chapters
+        // If AI reference doesn't have chapter info but keyword does, still prefer AI if it looks valid
+        if (!aiChapterMatch && keywordChapterMatch) {
+          // AI doesn't have chapter, but has law name - prefer AI if it's a valid law reference
+          if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
+            return convertOldFormatToNew(aiReference, questionText);
+          }
+        }
         if (aiChapterMatch && keywordChapterMatch && aiChapterMatch[1] === keywordChapterMatch[1]) {
           // Chapters match, convert to new format
           return convertOldFormatToNew(aiReference, questionText);
         } else if (keywordChapterMatch) {
-          // Chapters don't match, prefer keyword-based (more reliable)
+          // Chapters don't match, but if AI reference looks valid (has law name), prefer it
+          if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
+            return convertOldFormatToNew(aiReference, questionText);
+          }
+          // Otherwise prefer keyword-based (more reliable)
           console.warn('AI reference chapter mismatch, using keyword-based reference:', {
             ai: aiReference,
             keyword: keywordReference
@@ -2054,19 +2212,33 @@ async function getBookReferenceOpenAI(
 - תמיד החזר הפניה לחלק 1 בלבד
 
 החזר רק את ההפניה בפורמט הנדרש, ללא טקסט נוסף.`,
-        tools: [{ type: 'file_search' }],
-        tool_resources: {
-          file_search: pdfAttachment.vectorStoreIds.length > 0
-            ? { vector_store_ids: pdfAttachment.vectorStoreIds }
-            : { file_ids: pdfAttachment.fileIds || [] }
-        }
+        tools: pdfAttachment.vectorStoreIds.length > 0 ? [{ type: 'file_search' }] : [],
+        tool_resources: pdfAttachment.vectorStoreIds.length > 0
+          ? {
+              file_search: {
+                vector_store_ids: pdfAttachment.vectorStoreIds
+              }
+            }
+          : undefined
       });
+      
+      if (!assistant || !assistant.id) {
+        throw new Error('Failed to create assistant: assistant.id is undefined');
+      }
       
       // Create a Thread
       const thread = await openai.beta.threads.create();
       
+      if (!thread || !thread.id) {
+        throw new Error('Failed to create thread: thread.id is undefined');
+      }
+      
+      // Store thread ID in a const to ensure it doesn't get lost
+      const threadId = thread.id;
+      const assistantId = assistant.id;
+      
       // Add user message with the question
-      const userMessage = await openai.beta.threads.messages.create(thread.id, {
+      const userMessage = await openai.beta.threads.messages.create(threadId, {
         role: 'user',
         content: `שאלה: ${questionText}
 
@@ -2076,15 +2248,23 @@ async function getBookReferenceOpenAI(
       });
       
       // Run the Assistant
-      const run = await openai.beta.threads.runs.create(thread.id, {
-        assistant_id: assistant.id
+      const run = await openai.beta.threads.runs.create(threadId, {
+        assistant_id: assistantId
       });
+      
+      if (!run || !run.id) {
+        throw new Error('Failed to create run: run.id is undefined');
+      }
+      
+      // Store run ID in a const to ensure it doesn't get lost
+      const runId = run.id;
       
       // Wait for the run to complete
       let runStatus = run.status;
       while (runStatus === 'queued' || runStatus === 'in_progress') {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const runInfo = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+        // Use stored threadId and runId to avoid any potential issues
+        const runInfo = await openai.beta.threads.runs.retrieve(threadId, runId);
         runStatus = runInfo.status;
         if (runStatus === 'failed' || runStatus === 'cancelled' || runStatus === 'expired') {
           throw new Error(`Run ${runStatus}`);
@@ -2092,7 +2272,7 @@ async function getBookReferenceOpenAI(
       }
       
       // Retrieve the response
-      const messages = await openai.beta.threads.messages.list(thread.id);
+      const messages = await openai.beta.threads.messages.list(threadId);
       const assistantMessage = messages.data.find(msg => msg.role === 'assistant');
       
       if (!assistantMessage || !assistantMessage.content || assistantMessage.content.length === 0) {
@@ -2263,20 +2443,15 @@ ${TABLE_OF_CONTENTS}
 
 החזר רק את ההפניה בפורמט הנדרש, ללא טקסט נוסף.`;
 
-  const response = await openai.chat.completions.create({
+  const response = await openai.responses.create({
     model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content: 'אתה מומחה בניתוח שאלות משפטיות וקביעת הפניות לספרים. אתה תמיד מחזיר את ההפניה בפורמט: "[שם החוק/התקנה המלא עם שנה] – סעיף X" או "[שם החוק/התקנה המלא עם שנה] – סעיף X(תת-סעיף)" או "[שם החוק/התקנה המלא עם שנה]" ללא טקסט נוסף. דוגמה: "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 8(ב)"'
-      },
-      { role: 'user', content: prompt }
-    ],
+    instructions: 'אתה מומחה בניתוח שאלות משפטיות וקביעת הפניות לספרים. אתה תמיד מחזיר את ההפניה בפורמט: "[שם החוק/התקנה המלא עם שנה] – סעיף X" או "[שם החוק/התקנה המלא עם שנה] – סעיף X(תת-סעיף)" או "[שם החוק/התקנה המלא עם שנה]" ללא טקסט נוסף. דוגמה: "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 8(ב)"',
+    input: prompt,
     temperature: 0.3,
-    max_tokens: 100,
+    max_output_tokens: 100,
   });
 
-  const content = response.choices[0]?.message?.content?.trim();
+  const content = response.output_text?.trim();
   if (!content) {
     throw new Error('No response from OpenAI');
   }

@@ -56,19 +56,14 @@ ${documentContent}
 
 השב בשם הנושא בלבד, ללא הסברים. השם צריך להיות קצר ומדויק (2-4 מילים).`;
 
-    const response = await openai.chat.completions.create({
+    const response = await openai.responses.create({
       model: openAIModel,
-      messages: [
-        { 
-          role: 'system', 
-          content: 'אתה מערכת קטלוג שאלות. אתה תמיד מחזיר רק את שם הנושא, ללא הסברים או טקסט נוסף.' 
-        },
-        { role: 'user', content: prompt }
-      ],
+      instructions: 'אתה מערכת קטלוג שאלות. אתה תמיד מחזיר רק את שם הנושא, ללא הסברים או טקסט נוסף.',
+      input: prompt,
       temperature: 0.3,
     });
 
-    const topic = response.choices[0]?.message?.content?.trim();
+    const topic = response.output_text?.trim();
     if (!topic) {
       throw new Error('No topic returned');
     }
@@ -164,20 +159,19 @@ ${documentContent}
 
 כל נושא צריך להיות קצר ומדויק (2-4 מילים).`;
 
-    const response = await openai.chat.completions.create({
+    const response = await openai.responses.create({
       model: openAIModel,
-      messages: [
-        { 
-          role: 'system', 
-          content: 'אתה מערכת קטלוג שאלות. אתה תמיד מחזיר JSON עם רשימת שאלות ונושאים. השב עם אובייקט JSON שמכיל שדה "questions" שהוא מערך של אובייקטים עם "question" ו-"topic".' 
-        },
-        { role: 'user', content: prompt }
-      ],
+      instructions: 'אתה מערכת קטלוג שאלות. אתה תמיד מחזיר JSON עם רשימת שאלות ונושאים. השב עם אובייקט JSON שמכיל שדה "questions" שהוא מערך של אובייקטים עם "question" ו-"topic".',
+      input: prompt,
       temperature: 0.3,
-      response_format: { type: "json_object" }
+      text: {
+        format: {
+          type: 'json_object'
+        }
+      }
     });
 
-    const content = response.choices[0]?.message?.content?.trim();
+    const content = response.output_text?.trim();
     if (!content) {
       throw new Error('No response from OpenAI');
     }
