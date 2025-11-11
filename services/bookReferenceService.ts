@@ -422,7 +422,29 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
         throw new Error('Part 1 file processing timeout');
       }
       
-      // Skip vector stores - using fast chat completions instead of Assistants API
+      // Create vector store for part 1 via Edge Function
+      try {
+        const { supabase } = await import('./authService');
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          throw new Error('Not authenticated');
+        }
+        
+        const response = await supabase.functions.invoke('attach-pdfs-to-openai', {
+          body: { fileIds: [part1FileId] },
+        });
+        
+        if (response.error) {
+          throw new Error(response.error.message || 'Edge Function error');
+        }
+        
+        if (response.data?.success && response.data?.vectorStoreId) {
+          vectorStoreIds.push(response.data.vectorStoreId);
+        }
+      } catch (err) {
+        console.warn('⚠️ Vector store creation failed:', (err as Error).message);
+      }
     }
     
     // Upload part 2 PDF
@@ -458,7 +480,29 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
         throw new Error('Part 2 file processing timeout');
       }
       
-      // Skip vector stores - using fast chat completions instead
+      // Create vector store for part 2 via Edge Function
+      try {
+        const { supabase } = await import('./authService');
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          throw new Error('Not authenticated');
+        }
+        
+        const response = await supabase.functions.invoke('attach-pdfs-to-openai', {
+          body: { fileIds: [part2FileId] },
+        });
+        
+        if (response.error) {
+          throw new Error(response.error.message || 'Edge Function error');
+        }
+        
+        if (response.data?.success && response.data?.vectorStoreId) {
+          vectorStoreIds.push(response.data.vectorStoreId);
+        }
+      } catch (err) {
+        console.warn('⚠️ Vector store creation failed for part 2:', (err as Error).message);
+      }
     }
     
     // Cleanup function
@@ -2114,8 +2158,8 @@ async function getBookReferenceOpenAI(
     // Continue with chat completions - don't throw error
   }
   
-  // Use Assistants API with file_search tool (searches uploaded PDFs directly)
-  if (pdfAttachment && pdfAttachment.fileIds && pdfAttachment.fileIds.length > 0) {
+  // Use Assistants API with file_search tool (searches PDFs via vector stores)
+  if (pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
     try {
       
       // Create an Assistant with file_search tool
@@ -2148,7 +2192,7 @@ async function getBookReferenceOpenAI(
         tools: [{ type: 'file_search' }],
         tool_resources: {
           file_search: {
-            file_ids: pdfAttachment.fileIds
+            vector_store_ids: pdfAttachment.vectorStoreIds
           }
         }
       });
