@@ -386,6 +386,7 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
   const fileIds: string[] = [];
   let fileStatus: string = 'unknown'; // Declare fileStatus at function level
   let waitCount = 0; // Declare waitCount at function level
+  const maxWaitTime = 60; // Maximum wait time in seconds for file/vector store processing
   
   try {
     // Upload part 1 PDF
@@ -407,7 +408,6 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
       // Wait for file to be processed
       fileStatus = uploadedFile1.status;
       waitCount = 0;
-      const maxWaitTime = 60;
       while ((fileStatus === 'uploaded' || fileStatus === 'processing') && waitCount < maxWaitTime) {
         await new Promise(resolve => setTimeout(resolve, 1000));
         const fileInfo = await openai.files.retrieve(part1FileId);
