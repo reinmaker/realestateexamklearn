@@ -429,29 +429,36 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
       }
       
       // Try to use vectorStores if available, otherwise use file_ids directly
-      if (openai.beta.vectorStores) {
-        // Create vector store for part 1
-        const vectorStore1 = await openai.beta.vectorStores.create({
-          name: 'book-part1-store',
-          file_ids: [part1FileId]
-        });
-        
-        // Wait for vector store to be ready
-        let vectorStoreStatus = vectorStore1.status;
-        waitCount = 0;
-        while (vectorStoreStatus === 'in_progress' && waitCount < maxWaitTime) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          const storeInfo = await openai.beta.vectorStores.retrieve(vectorStore1.id);
-          vectorStoreStatus = storeInfo.status;
-          waitCount++;
+      if (openai.beta && openai.beta.vectorStores) {
+        try {
+          // Create vector store for part 1
+          const vectorStore1 = await openai.beta.vectorStores.create({
+            name: 'book-part1-store',
+            file_ids: [part1FileId]
+          });
+          
+          // Wait for vector store to be ready
+          let vectorStoreStatus = vectorStore1.status;
+          waitCount = 0;
+          while (vectorStoreStatus === 'in_progress' && waitCount < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            const storeInfo = await openai.beta.vectorStores.retrieve(vectorStore1.id);
+            vectorStoreStatus = storeInfo.status;
+            waitCount++;
+          }
+          
+          if (waitCount >= maxWaitTime) {
+            throw new Error('Part 1 vector store processing timeout');
+          }
+          
+          vectorStoreIds.push(vectorStore1.id);
+          console.log('✅ Part 1 vector store created:', vectorStore1.id);
+        } catch (vectorStoreError) {
+          console.warn('⚠️ Failed to create vector store for part 1, will use file_ids directly:', vectorStoreError);
+          // Continue without vector stores - will use file_ids for file_search
         }
-        
-        if (waitCount >= maxWaitTime) {
-          throw new Error('Part 1 vector store processing timeout');
-        }
-        
-        vectorStoreIds.push(vectorStore1.id);
       } else {
+        console.warn('⚠️ openai.beta.vectorStores is not available, will use file_ids directly');
         // fileIds already contains part1FileId, so we can use it directly
       }
     }
@@ -490,29 +497,36 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
       }
       
       // Try to use vectorStores if available, otherwise use file_ids directly
-      if (openai.beta.vectorStores) {
-        // Create vector store for part 2
-        const vectorStore2 = await openai.beta.vectorStores.create({
-          name: 'book-part2-store',
-          file_ids: [part2FileId]
-        });
-        
-        // Wait for vector store to be ready
-        let vectorStoreStatus = vectorStore2.status;
-        waitCount = 0;
-        while (vectorStoreStatus === 'in_progress' && waitCount < maxWaitTime) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          const storeInfo = await openai.beta.vectorStores.retrieve(vectorStore2.id);
-          vectorStoreStatus = storeInfo.status;
-          waitCount++;
+      if (openai.beta && openai.beta.vectorStores) {
+        try {
+          // Create vector store for part 2
+          const vectorStore2 = await openai.beta.vectorStores.create({
+            name: 'book-part2-store',
+            file_ids: [part2FileId]
+          });
+          
+          // Wait for vector store to be ready
+          let vectorStoreStatus = vectorStore2.status;
+          waitCount = 0;
+          while (vectorStoreStatus === 'in_progress' && waitCount < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            const storeInfo = await openai.beta.vectorStores.retrieve(vectorStore2.id);
+            vectorStoreStatus = storeInfo.status;
+            waitCount++;
+          }
+          
+          if (waitCount >= maxWaitTime) {
+            throw new Error('Part 2 vector store processing timeout');
+          }
+          
+          vectorStoreIds.push(vectorStore2.id);
+          console.log('✅ Part 2 vector store created:', vectorStore2.id);
+        } catch (vectorStoreError) {
+          console.warn('⚠️ Failed to create vector store for part 2, will use file_ids directly:', vectorStoreError);
+          // Continue without vector stores - will use file_ids for file_search
         }
-        
-        if (waitCount >= maxWaitTime) {
-          throw new Error('Part 2 vector store processing timeout');
-        }
-        
-        vectorStoreIds.push(vectorStore2.id);
       } else {
+        console.warn('⚠️ openai.beta.vectorStores is not available for part 2, will use file_ids directly');
         // fileIds already contains part2FileId, so we can use it directly
       }
     }
@@ -541,6 +555,13 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
         console.error('Error during cleanup:', error);
       }
     };
+    
+    // Log the result
+    if (vectorStoreIds.length > 0) {
+      console.log('✅ PDF attachment complete: vector stores available', { vectorStoreCount: vectorStoreIds.length, fileCount: fileIds.length });
+    } else {
+      console.warn('⚠️ PDF attachment complete: NO vector stores, using file_ids for file_search', { fileCount: fileIds.length });
+    }
     
     return {
       part1FileId,
@@ -2199,12 +2220,12 @@ async function getBookReferenceOpenAI(
     // Continue with chat completions - don't throw error
   }
   
-  // Use Assistants API only if vector stores are available, otherwise skip
-  if (pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
+  // Use Assistants API if PDFs are available (either via vector stores or file IDs)
+  if (pdfAttachment && (pdfAttachment.vectorStoreIds?.length > 0 || pdfAttachment.fileIds?.length > 0)) {
     try {
       
       // Create an Assistant with file_search tool
-      const assistant = await openai.beta.assistants.create({
+      const assistantConfig: any = {
         model: 'gpt-4o-mini',
         name: 'Book Reference Assistant',
         instructions: `אתה מומחה בניתוח שאלות למבחן הרישוי למתווכי מקרקעין בישראל. 
@@ -2230,15 +2251,27 @@ async function getBookReferenceOpenAI(
 - תמיד החזר הפניה לחלק 1 בלבד
 
 החזר רק את ההפניה בפורמט הנדרש, ללא טקסט נוסף.`,
-        tools: pdfAttachment.vectorStoreIds.length > 0 ? [{ type: 'file_search' }] : [],
-        tool_resources: pdfAttachment.vectorStoreIds.length > 0
-          ? {
-              file_search: {
-                vector_store_ids: pdfAttachment.vectorStoreIds
-              }
-            }
-          : undefined
-      });
+        tools: [{ type: 'file_search' }]
+      };
+      
+      // Add tool_resources with vector stores if available, otherwise use file IDs
+      if (pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
+        console.log('Using Assistants API with vector stores:', pdfAttachment.vectorStoreIds);
+        assistantConfig.tool_resources = {
+          file_search: {
+            vector_store_ids: pdfAttachment.vectorStoreIds
+          }
+        };
+      } else if (pdfAttachment.fileIds && pdfAttachment.fileIds.length > 0) {
+        console.log('Using Assistants API with file IDs:', pdfAttachment.fileIds);
+        assistantConfig.tool_resources = {
+          file_search: {
+            file_ids: pdfAttachment.fileIds
+          }
+        };
+      }
+      
+      const assistant = await openai.beta.assistants.create(assistantConfig);
       
       if (!assistant || !assistant.id) {
         throw new Error('Failed to create assistant: assistant.id is undefined');
