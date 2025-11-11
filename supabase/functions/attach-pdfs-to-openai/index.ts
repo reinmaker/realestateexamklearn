@@ -12,9 +12,24 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const body = await req.json();
+    console.log("📌 Edge Function invoked");
+    
+    let body;
+    try {
+      body = await req.json();
+    } catch (e) {
+      console.error("❌ Failed to parse JSON:", e);
+      return new Response(
+        JSON.stringify({ success: false, error: `JSON parse error: ${e}` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
     const { fileIds } = body;
+    console.log(`📋 Received fileIds: ${JSON.stringify(fileIds)}`);
+    
     const apiKey = Deno.env.get("OPENAI_API_KEY");
+    console.log(`🔑 API Key status: ${apiKey ? "✅ Found" : "❌ Not found"}`);
 
     if (!apiKey) {
       return new Response(
@@ -25,7 +40,7 @@ Deno.serve(async (req: Request) => {
 
     if (!Array.isArray(fileIds) || fileIds.length === 0) {
       return new Response(
-        JSON.stringify({ success: false, error: "Invalid fileIds" }),
+        JSON.stringify({ success: false, error: `Invalid fileIds: ${JSON.stringify(fileIds)}` }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -33,11 +48,13 @@ Deno.serve(async (req: Request) => {
     console.log(`🔄 Creating vector store for ${fileIds.length} files...`);
 
     // Step 1: Create vector store
+    console.log("🔄 Sending request to OpenAI vector_stores API...");
     const createVsResponse = await fetch("https://api.openai.com/v1/vector_stores", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        "OpenAI-Beta": "assistants=v2",
       },
       body: JSON.stringify({ name: `PDF-${Date.now()}` }),
     });
@@ -55,6 +72,7 @@ Deno.serve(async (req: Request) => {
     console.log(`✅ Vector store created: ${vectorStoreId}`);
 
     // Step 2: Add files to vector store
+    console.log(`🔄 Adding ${fileIds.length} files to vector store ${vectorStoreId}...`);
     const addFilesResponse = await fetch(
       `https://api.openai.com/v1/vector_stores/${vectorStoreId}/file_batches`,
       {
@@ -62,6 +80,7 @@ Deno.serve(async (req: Request) => {
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
+          "OpenAI-Beta": "assistants=v2",
         },
         body: JSON.stringify({ file_ids: fileIds }),
       }
