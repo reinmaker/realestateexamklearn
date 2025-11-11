@@ -1990,52 +1990,52 @@ export async function getBookReferenceByAI(
   // First try keyword-based matching for quick validation
   const keywordReference = getBookReferenceByKeywords(questionText);
   
-  // Try Gemini FIRST (PRIMARY - file search with PDFs works perfectly!)
+  // Use ONLY fast chat completions (OpenAI) - skip slow Gemini file search
   try {
-    const geminiReference = await getBookReferenceGemini(questionText, topic, documentContent);
+    const aiReference = await getBookReferenceOpenAI(questionText, topic, documentContent);
       
-    // Validate Gemini result against keyword match if available
+    // Validate AI result against keyword match if available
     if (keywordReference) {
       // Extract chapter numbers from both
-      const geminiChapterMatch = geminiReference.match(/פרק (\d+)/);
+      const aiChapterMatch = aiReference.match(/פרק (\d+)/);
       const keywordChapterMatch = keywordReference.match(/פרק (\d+)/);
       
-      // Check if Gemini returned new format (includes page number or "מופיע בעמ")
-      const geminiIsNewFormat = geminiReference.includes('מופיע בעמ') || 
-                           geminiReference.includes('מתחילות בעמ') ||
-                           geminiReference.includes('עמ\'') ||
-                           geminiReference.includes('עמוד');
+      // Check if AI returned new format (includes page number or "מופיע בעמ")
+      const aiIsNewFormat = aiReference.includes('מופיע בעמ') || 
+                           aiReference.includes('מתחילות בעמ') ||
+                           aiReference.includes('עמ\'') ||
+                           aiReference.includes('עמוד');
       const keywordIsNewFormat = keywordReference.includes('מופיע בעמ') || 
                                  keywordReference.includes('מתחילות בעמ') ||
                                  keywordReference.includes('עמ\'') ||
                                  keywordReference.includes('עמוד');
       
-      if (geminiIsNewFormat) {
-        // Gemini returned new format, validate and use it (prefer Gemini over keyword)
-        return validateReference(geminiReference, questionText);
+      if (aiIsNewFormat) {
+        // AI returned new format, validate and use it (prefer AI over keyword)
+        return validateReference(aiReference, questionText);
       } else if (keywordIsNewFormat) {
         // Keyword returned new format, use it
         return validateReference(keywordReference, questionText);
       } else {
         // Both are old format, check chapters
-        // If Gemini reference doesn't have chapter info but keyword does, still prefer Gemini if it looks valid
-        if (!geminiChapterMatch && keywordChapterMatch) {
-          // Gemini doesn't have chapter, but has law name - prefer Gemini if it's a valid law reference
-          if (geminiReference.includes('חוק') || geminiReference.includes('תקנות')) {
-            return convertOldFormatToNew(geminiReference, questionText);
+        // If AI reference doesn't have chapter info but keyword does, still prefer AI if it looks valid
+        if (!aiChapterMatch && keywordChapterMatch) {
+          // AI doesn't have chapter, but has law name - prefer AI if it's a valid law reference
+          if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
+            return convertOldFormatToNew(aiReference, questionText);
           }
         }
-        if (geminiChapterMatch && keywordChapterMatch && geminiChapterMatch[1] === keywordChapterMatch[1]) {
+        if (aiChapterMatch && keywordChapterMatch && aiChapterMatch[1] === keywordChapterMatch[1]) {
           // Chapters match, convert to new format
-          return convertOldFormatToNew(geminiReference, questionText);
+          return convertOldFormatToNew(aiReference, questionText);
         } else if (keywordChapterMatch) {
-          // Chapters don't match, but if Gemini reference looks valid (has law name), prefer it
-          if (geminiReference.includes('חוק') || geminiReference.includes('תקנות')) {
-            return convertOldFormatToNew(geminiReference, questionText);
+          // Chapters don't match, but if AI reference looks valid (has law name), prefer it
+          if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
+            return convertOldFormatToNew(aiReference, questionText);
           }
           // Otherwise prefer keyword-based (more reliable)
-          console.warn('Gemini reference chapter mismatch, using keyword-based reference:', {
-            gemini: geminiReference,
+          console.warn('AI reference chapter mismatch, using keyword-based reference:', {
+            ai: aiReference,
             keyword: keywordReference
           });
           return convertOldFormatToNew(keywordReference, questionText);
@@ -2043,81 +2043,20 @@ export async function getBookReferenceByAI(
       }
     }
     
-    // Validate Gemini reference before returning (convert if old format)
-    return validateReference(geminiReference, questionText);
+    // Validate AI reference before returning (convert if old format)
+    return validateReference(aiReference, questionText);
   } catch (error) {
-    console.warn('Gemini book reference failed, trying OpenAI as fallback:', (error as Error).message);
-    // Fallback to OpenAI
-    try {
-      const aiReference = await getBookReferenceOpenAI(questionText, topic, documentContent);
-      
-      // Validate AI result against keyword match if available
-      if (keywordReference) {
-        // Extract chapter numbers from both
-        const aiChapterMatch = aiReference.match(/פרק (\d+)/);
-        const keywordChapterMatch = keywordReference.match(/פרק (\d+)/);
-        
-        // Check if AI returned new format (includes page number or "מופיע בעמ")
-        const aiIsNewFormat = aiReference.includes('מופיע בעמ') || 
-                             aiReference.includes('מתחילות בעמ') ||
-                             aiReference.includes('עמ\'') ||
-                             aiReference.includes('עמוד');
-        const keywordIsNewFormat = keywordReference.includes('מופיע בעמ') || 
-                                   keywordReference.includes('מתחילות בעמ') ||
-                                   keywordReference.includes('עמ\'') ||
-                                   keywordReference.includes('עמוד');
-        
-        if (aiIsNewFormat) {
-          // AI returned new format, validate and use it (prefer AI over keyword)
-          return validateReference(aiReference, questionText);
-        } else if (keywordIsNewFormat) {
-          // Keyword returned new format, use it
-          return validateReference(keywordReference, questionText);
-        } else {
-          // Both are old format, check chapters
-          // If AI reference doesn't have chapter info but keyword does, still prefer AI if it looks valid
-          if (!aiChapterMatch && keywordChapterMatch) {
-            // AI doesn't have chapter, but has law name - prefer AI if it's a valid law reference
-            if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
-              return convertOldFormatToNew(aiReference, questionText);
-            }
-          }
-          if (aiChapterMatch && keywordChapterMatch && aiChapterMatch[1] === keywordChapterMatch[1]) {
-            // Chapters match, convert to new format
-            return convertOldFormatToNew(aiReference, questionText);
-          } else if (keywordChapterMatch) {
-            // Chapters don't match, but if AI reference looks valid (has law name), prefer it
-            if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
-              return convertOldFormatToNew(aiReference, questionText);
-            }
-            // Otherwise prefer keyword-based (more reliable)
-            console.warn('AI reference chapter mismatch, using keyword-based reference:', {
-              ai: aiReference,
-              keyword: keywordReference
-            });
-            return convertOldFormatToNew(keywordReference, questionText);
-          }
-        }
+    console.warn('OpenAI book reference failed, using keyword fallback:', (error as Error).message);
+    // Final fallback to keyword-based or default
+    if (keywordReference) {
+      // Convert to new format if it's old format
+      if (keywordReference.includes('מופיע בעמ') || keywordReference.includes('מתחילות בעמ')) {
+        return keywordReference;
+      } else {
+        return convertOldFormatToNew(keywordReference, questionText);
       }
-      
-      // Validate AI reference before returning (convert if old format)
-      return validateReference(aiReference, questionText);
-    } catch (openaiError) {
-      console.error('Both Gemini and OpenAI failed for book reference:', {
-        gemini: (error as Error).message,
-        openai: (openaiError as Error).message
-      });
-      // Final fallback to keyword-based or default
-      if (keywordReference) {
-        // Convert to new format if it's old format
-        if (keywordReference.includes('מופיע בעמ') || keywordReference.includes('מתחילות בעמ')) {
-          return keywordReference;
-        } else {
-          return convertOldFormatToNew(keywordReference, questionText);
-        }
-      }
-      return 'חלק 1';
     }
+    return 'חלק 1';
   }
 }
 
