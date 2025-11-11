@@ -5,6 +5,7 @@ import { OpenAI } from "https://deno.land/x/openai@v4.20.1/mod.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
 interface ContextBlock {
