@@ -2220,17 +2220,17 @@ async function getBookReferenceOpenAI(
     // Continue with chat completions - don't throw error
   }
   
-  // Use Assistants API if PDFs are available (either via vector stores or file IDs)
-  if (pdfAttachment && (pdfAttachment.vectorStoreIds?.length > 0 || pdfAttachment.fileIds?.length > 0)) {
+  // Use Assistants API only if vector stores are available (file_ids are not supported by file_search)
+  if (pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
     try {
       
       // Create an Assistant with file_search tool
-      const assistantConfig: any = {
+      const assistant = await openai.beta.assistants.create({
         model: 'gpt-4o-mini',
         name: 'Book Reference Assistant',
         instructions: `אתה מומחה בניתוח שאלות למבחן הרישוי למתווכי מקרקעין בישראל. 
 
-תפקידך: כאשר מקבלים שאלה, חפש בקובצי ה-PDF המצורפים (חלק 1 וחלק 2) את הנושא המשפטי הרלוונטי, הבן את השאלה בהקשר של הספר, ומצא את ההפניה המדויקת (שם החוק/התקנה המלא עם שנה, מספר הסעיף המדויק, ומספר העמוד).
+תפקידך: כאשר מקבלים שאלה, חפש בקבצי ה-PDF המצורפים (חלק 1 וחלק 2) את הנושא המשפטי הרלוונטי, הבן את השאלה בהקשר של הספר, ומצא את ההפניה המדויקת (שם החוק/התקנה המלא עם שנה, מספר הסעיף המדויק, ומספר העמוד).
 
 חשוב מאוד: כל ההפניות חייבות להיות לחלק 1 של הספר בלבד, גם אם הנושא מופיע גם בחלק 2. השתמש בחלק 2 רק להבנת ההקשר, אך תמיד החזר הפניה לחלק 1.
 
@@ -2251,27 +2251,13 @@ async function getBookReferenceOpenAI(
 - תמיד החזר הפניה לחלק 1 בלבד
 
 החזר רק את ההפניה בפורמט הנדרש, ללא טקסט נוסף.`,
-        tools: [{ type: 'file_search' }]
-      };
-      
-      // Add tool_resources with vector stores if available, otherwise use file IDs
-      if (pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
-        console.log('Using Assistants API with vector stores:', pdfAttachment.vectorStoreIds);
-        assistantConfig.tool_resources = {
+        tools: [{ type: 'file_search' }],
+        tool_resources: {
           file_search: {
             vector_store_ids: pdfAttachment.vectorStoreIds
           }
-        };
-      } else if (pdfAttachment.fileIds && pdfAttachment.fileIds.length > 0) {
-        console.log('Using Assistants API with file IDs:', pdfAttachment.fileIds);
-        assistantConfig.tool_resources = {
-          file_search: {
-            file_ids: pdfAttachment.fileIds
-          }
-        };
-      }
-      
-      const assistant = await openai.beta.assistants.create(assistantConfig);
+        }
+      });
       
       if (!assistant || !assistant.id) {
         throw new Error('Failed to create assistant: assistant.id is undefined');

@@ -232,8 +232,8 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
     console.warn('❌ OpenAI generateQuiz: Failed to attach PDFs to OpenAI, falling back to chat completions:', error);
   }
   
-  // Use Assistants API with file_search if PDFs are available (either via vector stores or file IDs)
-  if (pdfAttachment && (pdfAttachment.vectorStoreIds?.length > 0 || pdfAttachment.fileIds?.length > 0)) {
+  // Use Assistants API with file_search if vector stores are available (file_ids are not supported)
+  if (pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
     // STEP 2: Use Assistants API with file_search (PDFs already uploaded and indexed)
     try {
       const prompt = `אתה מומחה ביצירת שאלות למבחן הרישוי למתווכי מקרקעין בישראל. 
@@ -282,7 +282,7 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
 ]`;
 
       // Create an Assistant with file_search tool
-      const assistantConfig: any = {
+      const assistant = await openai.beta.assistants.create({
         model: 'gpt-4o-mini',
         name: 'Quiz Generator Assistant',
         instructions: `אתה מומחה ביצירת שאלות למבחן הרישוי למתווכי מקרקעין בישראל. 
@@ -322,27 +322,13 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
 חשוב מאוד - חובה: לפני יצירת כל שאלה, בדוק את הנושאים של השאלות שכבר יצרת. וודא שהשאלה החדשה היא על נושא שונה לחלוטין מהשאלות הקודמות. אם כבר יצרת שאלה על "מתווכים", אל תיצור עוד שאלה על "מתווכים" - בחר נושא אחר כמו "הגנת הצרכן" או "מכר דירות". כל שאלה חייבת להיות על נושא ייחודי שלא הופיע בשאלות הקודמות.
 
 החזר את השאלות ב-JSON בלבד, ללא טקסט נוסף.`,
-        tools: [{ type: 'file_search' }]
-      };
-      
-      // Add tool_resources with vector stores if available, otherwise use file IDs
-      if (pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
-        console.log('Using Assistants API with vector stores:', pdfAttachment.vectorStoreIds);
-        assistantConfig.tool_resources = {
+        tools: [{ type: 'file_search' }],
+        tool_resources: {
           file_search: {
             vector_store_ids: pdfAttachment.vectorStoreIds
           }
-        };
-      } else if (pdfAttachment.fileIds && pdfAttachment.fileIds.length > 0) {
-        console.log('Using Assistants API with file IDs:', pdfAttachment.fileIds);
-        assistantConfig.tool_resources = {
-          file_search: {
-            file_ids: pdfAttachment.fileIds
-          }
-        };
-      }
-      
-      const assistant = await openai.beta.assistants.create(assistantConfig);
+        }
+      });
       
       if (!assistant || !assistant.id) {
         throw new Error('Failed to create assistant: assistant.id is undefined');
