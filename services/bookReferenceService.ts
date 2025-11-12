@@ -1,4 +1,5 @@
 // Import functions will be done dynamically to avoid circular dependencies
+import { getOpenAIKey } from './apiKeysService';
 
 /**
  * DEPRECATED: Hardcoded PDF URLs are no longer used.
@@ -370,9 +371,19 @@ export async function getBookPdfFile(): Promise<File | Blob | null> {
   return getBookPdfFilePart1();
 }
 
+// Cache for vector store ID (persists across calls)
+let cachedVectorStoreId: string | null = null;
+let vectorStoreCacheTime: number = 0;
+const VECTOR_STORE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// Track Edge Function failures to avoid repeated calls
+let edgeFunctionFailureCount = 0;
+const MAX_EDGE_FUNCTION_FAILURES = 3; // Skip Edge Function after 3 failures
+
 /**
  * Helper function to upload both PDFs to OpenAI and create vector stores
  * Returns an object with uploaded files and vector store IDs
+ * Uses caching to avoid recreating vector stores on every call
  */
 export async function attachBookPdfsToOpenAI(openai: any): Promise<{
   part1FileId: string | null;
@@ -384,9 +395,23 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
   const uploadedFiles: string[] = [];
   const vectorStoreIds: string[] = [];
   const fileIds: string[] = [];
+  
+  // Check cache first - reuse existing vector store if available
+  const now = Date.now();
+  if (cachedVectorStoreId && (now - vectorStoreCacheTime) < VECTOR_STORE_CACHE_TTL) {
+    vectorStoreIds.push(cachedVectorStoreId);
+    return {
+      part1FileId: null,
+      part2FileId: null,
+      vectorStoreIds,
+      fileIds: [],
+      cleanup: async () => {} // No cleanup needed for cached stores
+    };
+  }
+  
   let fileStatus: string = 'unknown'; // Declare fileStatus at function level
   let waitCount = 0; // Declare waitCount at function level
-  const maxWaitTime = 60; // Maximum wait time in seconds for file/vector store processing
+  const maxWaitTime = 10; // Reduced from 60 - don't wait too long
   
   try {
     // Upload part 1 PDF
@@ -405,24 +430,21 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
       uploadedFiles.push(part1FileId);
       fileIds.push(part1FileId); // Add to fileIds for direct file_search usage
       
-      // Wait for file to be processed
-      fileStatus = uploadedFile1.status;
-      waitCount = 0;
-      while ((fileStatus === 'uploaded' || fileStatus === 'processing') && waitCount < maxWaitTime) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const fileInfo = await openai.files.retrieve(part1FileId);
-        fileStatus = fileInfo.status;
-        waitCount++;
-        if (fileStatus === 'error') {
-          throw new Error('Part 1 file processing failed');
-        }
-      }
+      // Don't wait for file processing - proceed immediately
+      // File will be processed in background by OpenAI
       
-      if (waitCount >= maxWaitTime) {
-        throw new Error('Part 1 file processing timeout');
+      // Create vector store for part 1 via Edge Function (non-blocking)
+      // Skip if Edge Function has failed too many times
+      if (edgeFunctionFailureCount >= MAX_EDGE_FUNCTION_FAILURES) {
+        return {
+          part1FileId: null,
+          part2FileId: null,
+          vectorStoreIds: [],
+          fileIds: [],
+          cleanup: async () => {}
+        };
       }
-      
-      // Create vector store for part 1 via Edge Function
+
       try {
         const { supabase } = await import('./authService');
         const { data: { session } } = await supabase.auth.getSession();
@@ -431,89 +453,70 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
           throw new Error('Not authenticated');
         }
         
-        const response = await supabase.functions.invoke('attach-pdfs-to-openai', {
-          body: { fileIds: [part1FileId] },
-        });
-        
-        if (response.error) {
-          throw new Error(response.error.message || 'Edge Function error');
-        }
-        
-        if (response.data?.success && response.data?.vectorStoreId) {
-          vectorStoreIds.push(response.data.vectorStoreId);
+        try {
+          const response = await supabase.functions.invoke('attach-pdfs-to-openai', {
+            body: { fileIds: [part1FileId] },
+          });
+          
+          if (response.error) {
+            // Increment failure count
+            edgeFunctionFailureCount++;
+            console.warn(`⚠️ Vector store creation via Edge Function failed (${edgeFunctionFailureCount}/${MAX_EDGE_FUNCTION_FAILURES}), will use fallback`);
+            return {
+              part1FileId: null,
+              part2FileId: null,
+              vectorStoreIds: [],
+              fileIds: [],
+              cleanup: async () => {}
+            };
+          }
+          
+          // Reset failure count on success
+          edgeFunctionFailureCount = 0;
+          
+          if (response.data?.success && response.data?.vectorStoreId) {
+            const vsId = response.data.vectorStoreId;
+            vectorStoreIds.push(vsId);
+            
+            // Cache the vector store ID
+            cachedVectorStoreId = vsId;
+            vectorStoreCacheTime = Date.now();
+            
+            // If still indexing, that's OK - file search will work once indexed
+          }
+        } catch (err) {
+          // Increment failure count
+          edgeFunctionFailureCount++;
+          // Silently handle Edge Function errors - not critical, we have fallbacks
+          console.warn(`⚠️ Vector store creation failed (${edgeFunctionFailureCount}/${MAX_EDGE_FUNCTION_FAILURES}, non-critical)`);
+          // Return empty result so caller can use fallback
+          return {
+            part1FileId: null,
+            part2FileId: null,
+            vectorStoreIds: [],
+            fileIds: [],
+            cleanup: async () => {}
+          };
         }
       } catch (err) {
-        console.warn('⚠️ Vector store creation failed:', (err as Error).message);
+        // Outer catch for any other errors
+        console.warn('⚠️ PDF attachment failed:', (err as Error).message);
       }
     }
     
-    // Upload part 2 PDF
-    const pdfFilePart2 = await getBookPdfFilePart2();
-    let part2FileId: string | null = null;
-    
-    if (pdfFilePart2) {
-      const file2 = pdfFilePart2 instanceof File ? pdfFilePart2 : new File([pdfFilePart2], 'part2.pdf', { type: 'application/pdf' });
-      
-      const uploadedFile2 = await openai.files.create({
-        file: file2,
-        purpose: 'assistants'
-      });
-      
-      part2FileId = uploadedFile2.id;
-      uploadedFiles.push(part2FileId);
-      fileIds.push(part2FileId); // Add to fileIds for direct file_search usage
-      
-      // Wait for file to be processed
-      fileStatus = uploadedFile2.status;
-      waitCount = 0;
-      while ((fileStatus === 'uploaded' || fileStatus === 'processing') && waitCount < maxWaitTime) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const fileInfo = await openai.files.retrieve(part2FileId);
-        fileStatus = fileInfo.status;
-        waitCount++;
-        if (fileStatus === 'error') {
-          throw new Error('Part 2 file processing failed');
-        }
-      }
-      
-      if (waitCount >= maxWaitTime) {
-        throw new Error('Part 2 file processing timeout');
-      }
-      
-      // Create vector store for part 2 via Edge Function
-      try {
-        const { supabase } = await import('./authService');
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (!session) {
-          throw new Error('Not authenticated');
-        }
-        
-        const response = await supabase.functions.invoke('attach-pdfs-to-openai', {
-          body: { fileIds: [part2FileId] },
-        });
-        
-        if (response.error) {
-          throw new Error(response.error.message || 'Edge Function error');
-        }
-        
-        if (response.data?.success && response.data?.vectorStoreId) {
-          vectorStoreIds.push(response.data.vectorStoreId);
-        }
-      } catch (err) {
-        console.warn('⚠️ Vector store creation failed for part 2:', (err as Error).message);
-      }
-    }
+    // Part 2 is not needed for book references - only part 1 is used
     
     // Cleanup function
     const cleanup = async () => {
       try {
-        // Delete vector stores
-        for (const storeId of vectorStoreIds) {
-          try {
-            await openai.beta.vectorStores.del(storeId);
-          } catch (error) {
-            console.warn('Failed to delete vector store:', storeId, error);
+        // Delete vector stores (only if API is available)
+        if (openai.beta && openai.beta.vectorStores) {
+          for (const storeId of vectorStoreIds) {
+            try {
+              await openai.beta.vectorStores.del(storeId);
+            } catch (error) {
+              console.warn('Failed to delete vector store:', storeId, error);
+            }
           }
         }
         
@@ -531,22 +534,13 @@ export async function attachBookPdfsToOpenAI(openai: any): Promise<{
     };
     
     // Log the result
-    if (vectorStoreIds.length > 0) {
-      console.log('✅ PDF attachment complete: vector stores available', { vectorStoreCount: vectorStoreIds.length, fileCount: fileIds.length });
-    } else {
+    if (vectorStoreIds.length === 0) {
       console.warn('⚠️ PDF attachment complete: NO vector stores created');
       console.warn('   Files uploaded successfully: ', fileIds.length);
       console.warn('   Fallback: Using table of contents and chat completions instead of file_search');
-      console.log('📋 OpenAI SDK Info:', {
-        sdkHasVectorStores: !!openai.beta?.vectorStores,
-        vectorStoresType: typeof openai.beta?.vectorStores,
-        betaAPIMethods: openai.beta ? Object.keys(openai.beta).filter(k => typeof openai.beta[k] === 'object' || typeof openai.beta[k] === 'function').slice(0, 10) : 'N/A'
-      });
     }
     
     return {
-      part1FileId,
-      part2FileId,
       vectorStoreIds,
       fileIds, // Include fileIds for direct file_search usage
       cleanup
@@ -2133,34 +2127,117 @@ async function getBookReferenceOpenAI(
     dangerouslyAllowBrowser: true 
   });
   
-  // Try to use Assistants API with both PDFs (optional - gracefully skip if PDFs not available)
-  let pdfAttachment: any = null;
-  try {
-    pdfAttachment = await attachBookPdfsToOpenAI(openai);
-  } catch (error: any) {
-    // If PDFs are not found in storage or vectorStores API is unavailable, skip PDF attachment and use chat completions
-    const isNotFoundError = error?.message?.includes('Object not found') || 
-                           error?.message?.includes('not found') ||
-                           error?.code === '404' ||
-                           error?.status === 404 ||
-                           error?.statusCode === 404;
-    
-    const isVectorStoresError = error?.message?.includes('vectorStores') || 
-                                error?.message?.includes('vectorStores API is not available');
-    
-    if (isNotFoundError) {
-      console.warn('getBookReferenceOpenAI: PDFs not found in storage, skipping PDF attachment and using chat completions');
-    } else if (isVectorStoresError) {
-      console.warn('getBookReferenceOpenAI: VectorStores API unavailable, skipping PDF attachment and using chat completions:', error?.message);
-    } else {
-      console.warn('getBookReferenceOpenAI: Failed to attach PDFs to OpenAI for book reference, falling back to chat completions:', error?.message || error);
-    }
-    // Continue with chat completions - don't throw error
-  }
-  
-  // Use Assistants API with file_search tool (searches PDFs via vector stores)
-  if (pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
+  // Skip client-side PDF upload - use file-search-assistant Edge Function instead
+  // Check for cached vector store ID first
+  let vectorStoreId: string | null = null;
+  if (cachedVectorStoreId && (Date.now() - vectorStoreCacheTime) < VECTOR_STORE_CACHE_TTL) {
+    vectorStoreId = cachedVectorStoreId;
+  } else {
+    // Try to create vector store via Edge Function (non-blocking)
     try {
+      const { supabase } = await import('./authService');
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session && edgeFunctionFailureCount < MAX_EDGE_FUNCTION_FAILURES) {
+        // Get a file ID first - we need to upload a file to OpenAI
+        // But we'll do this server-side via Edge Function
+        // For now, skip and use file-search-assistant which handles this server-side
+      }
+    } catch (err) {
+      console.warn('Failed to check session for vector store creation:', err);
+    }
+  }
+
+  // Use file search via Edge Function if we have a vector store ID
+  if (vectorStoreId) {
+    try {
+      const { supabase } = await import('./authService');
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      // Extract key legal terms from question for better search
+      const stopWords = ['את', 'של', 'על', 'עם', 'או', 'אם', 'כי', 'מה', 'איזה', 'למה', 'באיזה', 'האם'];
+      const keyTerms = questionText
+        .replace(/[?!.,]/g, '')
+        .split(/\s+/)
+        .filter(term => 
+          term.length > 3 && 
+          /[\u0590-\u05FF]/.test(term) &&
+          !stopWords.includes(term.toLowerCase())
+        )
+        .slice(0, 5)
+        .join(' ');
+
+      // Create a VERY specific search query
+      const searchQuery = `${questionText}
+
+מושגים מרכזיים: ${keyTerms}
+
+חפש בקבצי ה-PDF את:
+1. המושגים הספציפיים בשאלה: ${keyTerms}
+2. הקשר החוקי המדויק לנושא השאלה
+3. מצא את סעיף החוק המדויק (מספר סעיף, לא פרק) שדן בדיוק בנושא זה
+4. מצא את מספר העמוד המדויק בקובץ שבו מופיע הסעיף
+
+חשוב: ודא שהחוק שתמצא תואם לנושא השאלה. אם השאלה על תיווך - החוק חייב להיות חוק המתווכים. אם על מכר דירות - חוק המכר (דירות).`;
+
+      const response = await supabase.functions.invoke('file-search-assistant', {
+        body: {
+          vectorStoreId: vectorStoreId,
+          question: searchQuery,
+          topic: topic // Pass topic for better context
+        }
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Edge Function error');
+      }
+
+      if (response.data?.success && response.data?.response) {
+        const result = response.data.response.trim();
+        
+        // Validate result
+        if (!result || result.includes('לא נמצאו') || result.includes('לא מצאתי') || result.includes('לא נמצא בקובץ') || result.length < 10) {
+          console.warn('File search returned empty/no results, falling back to chat completions');
+          return null;
+        }
+
+        // Validate that the law matches the topic (if topic is provided)
+        if (topic) {
+          const topicToLawMap: Record<string, string[]> = {
+            '1': ['המתווכים במקרקעין', 'המתווכים'],
+            '2': ['המכר (דירות)', 'המכר', 'דירות'],
+            '3': ['המקרקעין'],
+            '4': ['התכנון והבנייה', 'התכנון', 'הבנייה'],
+            '5': ['הגנת הדייר', 'הדייר'],
+            '6': ['רישום מקרקעין', 'רישום'],
+          };
+
+          const expectedLaws = topicToLawMap[topic] || [];
+          const resultLower = result.toLowerCase();
+          const matchesExpectedLaw = expectedLaws.some(law => resultLower.includes(law.toLowerCase()));
+
+          if (!matchesExpectedLaw && expectedLaws.length > 0) {
+            console.warn(`⚠️ Reference law doesn't match topic ${topic}. Expected: ${expectedLaws.join(' or ')}, Got: ${result.substring(0, 50)}`);
+            // Still return it, but log warning - sometimes cross-topic references are valid
+          }
+        }
+
+        return result;
+      }
+    } catch (fileSearchError) {
+      console.warn('File search failed:', (fileSearchError as Error).message);
+    }
+  }
+
+  // Fallback to chat completions
+  if (false && pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
+    try {
+      // OpenAI only accepts 1 vector store per assistant - use the first one (part 1)
+      const vectorStoreId = pdfAttachment.vectorStoreIds[0];
       
       // Create an Assistant with file_search tool
       const assistant = await openai.beta.assistants.create({
@@ -2168,11 +2245,9 @@ async function getBookReferenceOpenAI(
         name: 'Book Reference Assistant',
         instructions: `אתה מומחה בניתוח שאלות למבחן הרישוי למתווכי מקרקעין בישראל. 
 
-תפקידך: כאשר מקבלים שאלה, חפש בקבצי ה-PDF המצורפים (חלק 1 וחלק 2) את הנושא המשפטי הרלוונטי, הבן את השאלה בהקשר של הספר, ומצא את ההפניה המדויקת (שם החוק/התקנה המלא עם שנה, מספר הסעיף המדויק, ומספר העמוד).
+תפקידך: כאשר מקבלים שאלה, חפש בקובץ ה-PDF את הנושא המשפטי הרלוונטי, הבן את השאלה בהקשר של הספר, ומצא את ההפניה המדויקת (שם החוק/התקנה המלא עם שנה, מספר הסעיף המדויק, ומספר העמוד).
 
-חשוב מאוד: כל ההפניות חייבות להיות לחלק 1 של הספר בלבד, גם אם הנושא מופיע גם בחלק 2. השתמש בחלק 2 רק להבנת ההקשר, אך תמיד החזר הפניה לחלק 1.
-
-השתמש בכלי file_search כדי לחפש בקבצי ה-PDF את הנושא מהשאלה. קרא את הטקסט הרלוונטי בקבצים כדי למצוא את הסעיף המדויק שמתייחס לנושא השאלה.
+השתמש בכלי file_search כדי לחפש בקובץ ה-PDF את הנושא מהשאלה. קרא את הטקסט הרלוונטי בקובץ כדי למצוא את הסעיף המדויק שמתייחס לנושא השאלה.
 
 פורמט התשובה:
 - אם יש סעיף ספציפי: "[שם החוק/התקנה המלא עם שנה] – סעיף X"
@@ -2181,45 +2256,42 @@ async function getBookReferenceOpenAI(
 - אם זה תחילת חוק/תקנה: "[שם החוק/התקנה המלא עם שנה]"
 
 חשוב:
-- חפש בקבצי ה-PDF את הנושא מהשאלה
+- חפש בקובץ ה-PDF את הנושא מהשאלה
 - מצא את הסעיף המדויק שמתייחס לנושא
 - קרא את הטקסט של הסעיף כדי לוודא שהוא רלוונטי
-- השתמש במספר העמוד המדויק מהקובץ (חלק 1)
+- השתמש במספר העמוד המדויק מהקובץ
 - תמיד כלול את שם החוק המלא עם השנה
-- תמיד החזר הפניה לחלק 1 בלבד
 
 החזר רק את ההפניה בפורמט הנדרש, ללא טקסט נוסף.`,
         tools: [{ type: 'file_search' }],
         tool_resources: {
           file_search: {
-            vector_store_ids: pdfAttachment.vectorStoreIds
+            vector_store_ids: [vectorStoreId]
           }
         }
       });
       
-      if (!assistant || !assistant.id) {
+      if (!assistant?.id) {
         throw new Error('Failed to create assistant: assistant.id is undefined');
       }
+      
+      const assistantId = assistant.id;
       
       // Create a Thread
       const thread = await openai.beta.threads.create();
       
-      if (!thread || !thread.id) {
+      if (!thread?.id) {
         throw new Error('Failed to create thread: thread.id is undefined');
       }
       
-      // Store thread ID in a const to ensure it doesn't get lost
       const threadId = thread.id;
-      const assistantId = assistant.id;
       
       // Add user message with the question
-      const userMessage = await openai.beta.threads.messages.create(threadId, {
+      await openai.beta.threads.messages.create(threadId, {
         role: 'user',
         content: `שאלה: ${questionText}
 
-חפש בקבצי ה-PDF המצורפים (חלק 1 וחלק 2) את הנושא המשפטי מהשאלה ומצא את ההפניה המדויקת (שם החוק/התקנה המלא עם שנה, מספר הסעיף, ומספר העמוד).
-
-חשוב מאוד: כל ההפניות חייבות להיות לחלק 1 של הספר בלבד, גם אם הנושא מופיע גם בחלק 2. השתמש בחלק 2 רק להבנת ההקשר, אך תמיד החזר הפניה לחלק 1.`
+חפש בקובץ ה-PDF את הנושא המשפטי מהשאלה ומצא את ההפניה המדויקת (שם החוק/התקנה המלא עם שנה, מספר הסעיף, ומספר העמוד).`
       });
       
       // Run the Assistant
@@ -2227,92 +2299,66 @@ async function getBookReferenceOpenAI(
         assistant_id: assistantId
       });
       
-      if (!run || !run.id) {
+      if (!run?.id) {
         throw new Error('Failed to create run: run.id is undefined');
       }
       
-      // Store run ID in a const to ensure it doesn't get lost
       const runId = run.id;
+      
+      // CRITICAL: Capture IDs as strings immediately to prevent loss
+      const capturedThreadId = String(threadId);
+      const capturedRunId = String(runId);
+      
+      if (!capturedThreadId || capturedThreadId === 'undefined') {
+        throw new Error(`Failed to capture threadId: ${capturedThreadId}`);
+      }
+      if (!capturedRunId || capturedRunId === 'undefined') {
+        throw new Error(`Failed to capture runId: ${capturedRunId}`);
+      }
       
       // Wait for the run to complete
       let runStatus = run.status;
-      while (runStatus === 'queued' || runStatus === 'in_progress') {
+      let pollCount = 0;
+      
+      while ((runStatus === 'queued' || runStatus === 'in_progress') && pollCount < 60) {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        // Use stored threadId and runId to avoid any potential issues
-        if (!threadId || !runId) {
-          throw new Error(`Missing IDs: threadId=${threadId}, runId=${runId}`);
-        }
-        const runInfo = await openai.beta.threads.runs.retrieve(threadId, runId);
-        runStatus = runInfo.status;
+        pollCount++;
+        
+        // Use captured string IDs, not original variables
+        const currentRun = await openai.beta.threads.runs.retrieve(capturedThreadId, capturedRunId);
+        runStatus = currentRun.status;
+        
         if (runStatus === 'failed' || runStatus === 'cancelled' || runStatus === 'expired') {
           throw new Error(`Run ${runStatus}`);
         }
       }
       
-      // Retrieve the response
-      const messages = await openai.beta.threads.messages.list(threadId);
+      // Retrieve the response using captured ID
+      const messages = await openai.beta.threads.messages.list(capturedThreadId);
       const assistantMessage = messages.data.find(msg => msg.role === 'assistant');
       
-      if (!assistantMessage || !assistantMessage.content || assistantMessage.content.length === 0) {
+      if (!assistantMessage?.content?.[0]) {
         throw new Error('No response from assistant');
       }
       
-      // Extract text from response
       const content = assistantMessage.content[0];
-      let responseText = '';
-      if (content.type === 'text') {
-        responseText = content.text.value;
-      } else {
+      if (content.type !== 'text') {
         throw new Error('Unexpected response type from assistant');
       }
       
+      const responseText = content.text.value.trim();
+      
       // Clean up: delete assistant and PDFs
       try {
-        await openai.beta.assistants.del(assistant.id);
+        await openai.beta.assistants.del(assistantId);
         await pdfAttachment.cleanup();
       } catch (cleanupError) {
         console.warn('Failed to clean up OpenAI resources:', cleanupError);
       }
       
-      // Validate and return the response
-      const trimmedContent = responseText.trim();
-      if (!trimmedContent) {
-        throw new Error('Empty response from assistant');
-      }
-      
-      // Validate format - prefer new format
-      if (trimmedContent.includes('מופיע בעמ') || trimmedContent.includes('מתחילות בעמ')) {
-        return trimmedContent;
-      }
-      
-      // Try to extract new format reference if wrapped in quotes or other text
-      const newFormatMatch = trimmedContent.match(/(חוק|תקנות)[^–]+–\s*סעיף\s+[^.]*מופיע בעמ['\s]?\s*\d+[^.]*בקובץ/);
-      if (newFormatMatch) {
-        return newFormatMatch[0];
-      }
-      
-      // Try to extract "מתחילות בעמ" format
-      const startsAtMatch = trimmedContent.match(/(חוק|תקנות)[^.]*מתחילות בעמ['\s]?\s*\d+[^.]*בקובץ/);
-      if (startsAtMatch) {
-        return startsAtMatch[0];
-      }
-      
-      // If old format is returned, log warning but return it
-      if (trimmedContent.startsWith('חלק 1 - פרק')) {
-        console.warn('AI returned old format reference, should use new format:', trimmedContent);
-        return trimmedContent;
-      }
-      
-      // Try old format extraction as last resort
-      const oldMatch = trimmedContent.match(/חלק 1 - פרק \d+: [^,]+,\s*עמוד \d+/);
-      if (oldMatch) {
-        console.warn('AI returned old format reference, should use new format:', oldMatch[0]);
-        return oldMatch[0];
-      }
-      
-      return trimmedContent;
+      return responseText || 'חלק 1';
     } catch (assistantsError) {
-      console.warn('Failed to use Assistants API, falling back to chat completions:', assistantsError);
+      console.warn('Failed to use Assistants API with file_search, falling back to chat completions:', assistantsError);
       // Fall through to chat completions fallback
     }
   }
@@ -2476,7 +2522,6 @@ ${TABLE_OF_CONTENTS}
       const keywordRef = getBookReferenceByKeywords(questionText);
       if (keywordRef) {
         const convertedRef = convertOldFormatToNew(keywordRef, questionText);
-        console.log(`  Fallback to keyword: "${convertedRef}"`);
         return convertedRef;
       }
     } catch (error) {

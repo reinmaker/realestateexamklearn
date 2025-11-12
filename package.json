@@ -8,11 +8,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "precompute-answers": "tsx scripts/precomputeAnswers.ts",
-    "fix-numeric-answers": "tsx scripts/fixNumericAnswers.ts"
+    "fix-numeric-answers": "tsx scripts/fixNumericAnswers.ts",
+    "extract-pdfs": "tsx scripts/extractPdfsToDb.ts"
   },
   "dependencies": {
     "@google/genai": "^1.28.0",
     "@supabase/supabase-js": "^2.78.0",
+    "dotenv": "^17.2.3",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.2",
     "openai": "^6.8.1",

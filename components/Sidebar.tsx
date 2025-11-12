@@ -1,6 +1,6 @@
 import React from 'react';
 import { ViewType } from '../types';
-import { HomeIcon, QuizIcon, FlashcardsIcon, ChatIcon, UserIcon, LogoutIcon, CloseIcon, ExamIcon, SupportIcon, AdminIcon } from './icons';
+import { HomeIcon, QuizIcon, FlashcardsIcon, ChatIcon, UserIcon, LogoutIcon, CloseIcon, ExamIcon, SupportIcon, AdminIcon, AIIcon } from './icons';
 import ExamCountdown from './ExamCountdown';
 
 interface SidebarProps {
@@ -22,7 +22,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
   const learningTools = [
     { id: 'home', label: 'בית', icon: HomeIcon, disabled: false },
     { id: 'quiz', label: 'בוחן אימון', icon: QuizIcon, disabled: !emailConfirmed },
-    { id: 'reinforcement-quiz', label: 'בוחן חיזוק', icon: QuizIcon, disabled: !emailConfirmed },
+    { id: 'reinforcement-quiz', label: 'בוחן חיזוק', icon: AIIcon, disabled: !emailConfirmed },
     { id: 'flashcards', label: 'כרטיסיות', icon: FlashcardsIcon, disabled: !emailConfirmed },
     { id: 'chat', label: 'המורה הפרטי שלך', icon: ChatIcon, disabled: !emailConfirmed },
   ];

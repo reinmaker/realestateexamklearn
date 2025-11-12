@@ -4,7 +4,11 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, content-type, apikey",
+  "Access-Control-Max-Age": "86400",
 };
+
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+const OPENAI_API_BASE = "https://api.openai.com/v1";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -12,8 +16,6 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    console.log("📌 Edge Function invoked");
-    
     let body;
     try {
       body = await req.json();
@@ -26,12 +28,9 @@ Deno.serve(async (req: Request) => {
     }
     
     const { fileIds } = body;
-    console.log(`📋 Received fileIds: ${JSON.stringify(fileIds)}`);
     
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
-    console.log(`🔑 API Key status: ${apiKey ? "✅ Found" : "❌ Not found"}`);
-
-    if (!apiKey) {
+    if (!OPENAI_API_KEY) {
+      console.error("❌ OPENAI_API_KEY not found");
       return new Response(
         JSON.stringify({ success: false, error: "OPENAI_API_KEY not set" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -45,22 +44,20 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log(`🔄 Creating vector store for ${fileIds.length} files...`);
-
     // Step 1: Create vector store
-    console.log("🔄 Sending request to OpenAI vector_stores API...");
-    const createVsResponse = await fetch("https://api.openai.com/v1/vector_stores", {
+    const createVsResponse = await fetch(`${OPENAI_API_BASE}/vector_stores`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
         "OpenAI-Beta": "assistants=v2",
       },
-      body: JSON.stringify({ name: `PDF-${Date.now()}` }),
+      body: JSON.stringify({ name: `RealEstateLaw-Part1-${Date.now()}` }),
     });
 
     if (!createVsResponse.ok) {
       const error = await createVsResponse.text();
+      console.error("❌ Failed to create vector store:", error);
       return new Response(
         JSON.stringify({ success: false, error: `Create failed: ${error}` }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -69,16 +66,14 @@ Deno.serve(async (req: Request) => {
 
     const vs = await createVsResponse.json();
     const vectorStoreId = vs.id;
-    console.log(`✅ Vector store created: ${vectorStoreId}`);
 
     // Step 2: Add files to vector store
-    console.log(`🔄 Adding ${fileIds.length} files to vector store ${vectorStoreId}...`);
     const addFilesResponse = await fetch(
-      `https://api.openai.com/v1/vector_stores/${vectorStoreId}/file_batches`,
+      `${OPENAI_API_BASE}/vector_stores/${vectorStoreId}/file_batches`,
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
           "Content-Type": "application/json",
           "OpenAI-Beta": "assistants=v2",
         },
@@ -88,6 +83,7 @@ Deno.serve(async (req: Request) => {
 
     if (!addFilesResponse.ok) {
       const error = await addFilesResponse.text();
+      console.error("❌ Failed to add files:", error);
       return new Response(
         JSON.stringify({ success: false, error: `Add files failed: ${error}` }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -95,13 +91,18 @@ Deno.serve(async (req: Request) => {
     }
 
     const batch = await addFilesResponse.json();
-    console.log(`✅ Files added. Batch status: ${batch.status}`);
 
+    // Return immediately - don't wait for indexing to complete
+    // File search will work once indexing completes (usually within 30-60 seconds)
+    // This prevents Edge Function timeout (60s limit) and speeds up response
+    
     return new Response(
       JSON.stringify({
         success: true,
         vectorStoreId,
         batchStatus: batch.status,
+        fileCount: fileIds.length,
+        message: "processing"
       }),
       { 
         status: 200,

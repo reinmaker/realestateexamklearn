@@ -196,23 +196,21 @@ ${blockTexts}
 }
 
 export async function generateQuiz(documentContent?: string, count: number = 10): Promise<QuizQuestion[]> {
-  // Try retrieval-first approach
+  // Skip retrieval-based generation (retrieve-blocks Edge Function has CORS issues)
+  // Use direct AI generation instead
+  console.log('Using direct AI generation (retrieval-based generation disabled)');
+  // Fallback to existing AI-based approach
+  const ai = getAi();
   try {
-    return await generateQuizWithRetrieval(count);
-  } catch (error) {
-    console.warn('Retrieval-based generation failed, falling back to AI:', error);
-    // Fallback to existing AI-based approach
-    const ai = getAi();
-    try {
-      return await retryWithBackoff(async () => {
-    const { TABLE_OF_CONTENTS, attachBookPdfsToGemini } = await import('./bookReferenceService');
-    
-    // STEP 1: Upload PDFs FIRST, before generating questions
-    let pdfAttachment: any = null;
-    let contents: any = null;
-    
-    try {
-      pdfAttachment = await attachBookPdfsToGemini(ai);
+    return await retryWithBackoff(async () => {
+      const { TABLE_OF_CONTENTS, attachBookPdfsToGemini } = await import('./bookReferenceService');
+      
+      // STEP 1: Upload PDFs FIRST, before generating questions
+      let pdfAttachment: any = null;
+      let contents: any = null;
+      
+      try {
+        pdfAttachment = await attachBookPdfsToGemini(ai);
       
       if (pdfAttachment && pdfAttachment.parts.length > 0) {
         // Use PDFs with text prompt

@@ -22,6 +22,68 @@ import { getCurrentUser, onAuthStateChange, signOut as authSignOut, User } from 
 import { saveUserStats, saveUserSession, saveUserAnalysis, getLatestUserAnalysis, getUserStats, UserStats } from './services/userStatsService';
 import { categorizeQuestionsByTopic, calculateTopicProgress, getWeakAndStrongTopics, saveTopicProgress, getTopicProgress } from './services/topicTrackingService';
 import { isAdmin } from './services/adminService';
+import { getBookReferenceByAI } from './services/bookReferenceService';
+
+/**
+ * Pre-fetch book references for all questions in the background
+ * This makes references instantly available when user navigates to each question
+ * Updates state incrementally as references are fetched
+ */
+const preFetchBookReferences = async (
+  questions: QuizQuestion[], 
+  documentContent: string,
+  updateQuestions: (updated: QuizQuestion[]) => void
+) => {
+  // Create a copy to avoid mutating the original
+  const updatedQuestions = [...questions];
+  
+  // Fetch references in parallel batches to avoid overwhelming the API
+  const batchSize = 5;
+  for (let i = 0; i < questions.length; i += batchSize) {
+    const batch = questions.slice(i, i + batchSize);
+    
+    // Fetch references for this batch in parallel
+    const referencePromises = batch.map(async (question, batchIndex) => {
+      const questionIndex = i + batchIndex;
+      
+      // Skip if reference already exists
+      if (question.bookReference) {
+        return { questionIndex, reference: question.bookReference };
+      }
+      
+      try {
+        const reference = await getBookReferenceByAI(question.question, undefined, documentContent);
+        return { questionIndex, reference };
+      } catch (error) {
+        console.warn(`⚠️ Failed to pre-fetch reference for question ${questionIndex + 1}:`, error);
+        return { questionIndex, reference: null };
+      }
+    });
+    
+    // Wait for batch to complete before starting next batch
+    const results = await Promise.all(referencePromises);
+    
+    // Update questions with fetched references
+    results.forEach(({ questionIndex, reference }) => {
+      if (reference && updatedQuestions[questionIndex]) {
+        updatedQuestions[questionIndex] = {
+          ...updatedQuestions[questionIndex],
+          bookReference: reference
+        };
+      }
+    });
+    
+    // Update state with current progress (incremental updates)
+    updateQuestions([...updatedQuestions]);
+    
+    // Small delay between batches to avoid rate limiting
+    if (i + batchSize < questions.length) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  
+  return updatedQuestions;
+};
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -527,6 +589,14 @@ const App: React.FC = () => {
           setQuizQuestions(randomizedQuestions);
           quizQuestionsRef.current = randomizedQuestions;
           
+          // Pre-fetch book references in background (non-blocking)
+          preFetchBookReferences([...randomizedQuestions], documentContent, (updated) => {
+            setQuizQuestions(updated);
+            quizQuestionsRef.current = updated;
+          }).catch(err => {
+            console.warn('Pre-fetching references failed:', err);
+          });
+          
           // Reset targeted quiz flag when regular quiz is successfully generated
           targetedQuizAttemptedRef.current = false;
           
@@ -622,6 +692,14 @@ const App: React.FC = () => {
           
           setReinforcementQuizQuestions(randomizedQuestions);
           reinforcementQuizQuestionsRef.current = randomizedQuestions;
+          
+          // Pre-fetch book references in background (non-blocking)
+          preFetchBookReferences([...randomizedQuestions], documentContent, (updated) => {
+            setReinforcementQuizQuestions(updated);
+            reinforcementQuizQuestionsRef.current = updated;
+          }).catch(err => {
+            console.warn('Pre-fetching references failed:', err);
+          });
           
           // Reset targeted quiz flag when reinforcement quiz is successfully generated
           targetedReinforcementQuizAttemptedRef.current = false;
@@ -809,6 +887,13 @@ const App: React.FC = () => {
       });
       
       setExamQuestions(randomizedQuestions);
+      
+      // Pre-fetch book references in background (non-blocking)
+      preFetchBookReferences([...randomizedQuestions], documentContent, (updated) => {
+        setExamQuestions(updated);
+      }).catch(err => {
+        console.warn('Pre-fetching references failed:', err);
+      });
     } catch (error) {
       if (error instanceof Error) {
         setAppError(error.message);
@@ -1323,6 +1408,13 @@ const App: React.FC = () => {
           });
           
           setReinforcementQuizQuestions(randomizedQuestions);
+          
+          // Pre-fetch book references in background (non-blocking)
+          preFetchBookReferences([...randomizedQuestions], documentContent, (updated) => {
+            setReinforcementQuizQuestions(updated);
+          }).catch(err => {
+            console.warn('Pre-fetching references failed:', err);
+          });
       } catch (error) {
           console.error('handleCreateTargetedQuiz: Error generating targeted quiz:', error);
           if (error instanceof Error) setAppError(error.message);

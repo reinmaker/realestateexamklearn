@@ -217,23 +217,12 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
   const { TABLE_OF_CONTENTS, attachBookPdfsToOpenAI } = await import('./bookReferenceService');
   // TABLE_OF_CONTENTS is imported once at the top and reused in fallback section
   
-  // STEP 1: Upload PDFs FIRST, before generating questions
-  let pdfAttachment: any = null;
-  try {
-    pdfAttachment = await attachBookPdfsToOpenAI(openai);
-    if (pdfAttachment?.vectorStoreIds?.length > 0) {
-      console.log(`✅ PDFs successfully attached with ${pdfAttachment.vectorStoreIds.length} vector store(s)`);
-    } else if (pdfAttachment?.fileIds?.length > 0) {
-      console.log(`✅ PDFs uploaded with ${pdfAttachment.fileIds.length} file(s) (no vector stores)`);
-    } else {
-      console.warn('⚠️ PDFs attached but no vector stores or file IDs found');
-    }
-  } catch (error) {
-    console.warn('❌ OpenAI generateQuiz: Failed to attach PDFs to OpenAI, falling back to chat completions:', error);
-  }
+  // Skip client-side PDF upload (causes CORS errors)
+  // Use chat completions with table of contents instead
+  const pdfAttachment: any = null; // Disabled - skip PDF attachment
   
-  // Use Assistants API with file_search if vector stores are available (file_ids are not supported)
-  if (pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
+  // Skip Assistants API with file_search (requires client-side PDF upload)
+  if (false && pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
     // STEP 2: Use Assistants API with file_search (PDFs already uploaded and indexed)
     try {
       const prompt = `אתה מומחה ביצירת שאלות למבחן הרישוי למתווכי מקרקעין בישראל. 
@@ -360,201 +349,13 @@ async function generateQuizOpenAI(documentContent?: string, count: number = 10):
         throw new Error('Failed to create run: run.id is undefined');
       }
       
-      // Store run ID in const to ensure it doesn't get lost
-      const runId = run.id;
-      
-      // Wait for the run to complete
-      let runStatus = run.status;
-      let waitCount = 0;
-      const maxWaitTime = 120; // 2 minutes timeout
-      while ((runStatus === 'queued' || runStatus === 'in_progress') && waitCount < maxWaitTime) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        // Double-check IDs are still valid before making the call
-        if (!threadId || !runId) {
-          throw new Error(`Invalid IDs before retrieve: threadId=${threadId}, runId=${runId}`);
-        }
-        const runInfo = await openai.beta.threads.runs.retrieve(threadId, runId);
-        runStatus = runInfo.status;
-        waitCount++;
-        if (runStatus === 'failed' || runStatus === 'cancelled') {
-          throw new Error(`Assistant run ${runStatus}`);
-        }
-      }
-      
-      if (waitCount >= maxWaitTime) {
-        throw new Error('Assistant run timeout');
-      }
-      
-      // Retrieve the assistant's response
-      const messages = await openai.beta.threads.messages.list(threadId);
-      const assistantMessage = messages.data.find((msg: any) => msg.role === 'assistant');
-      
-      if (!assistantMessage || !assistantMessage.content[0] || assistantMessage.content[0].type !== 'text') {
-        throw new Error('No response from assistant');
-      }
-      
-      const content = assistantMessage.content[0].text.value;
-      
-      // Cleanup
-      try {
-        await openai.beta.assistants.del(assistant.id);
-        await pdfAttachment.cleanup();
-      } catch (cleanupError) {
-        console.warn('Failed to cleanup assistant and files:', cleanupError);
-      }
-      
-      // Parse JSON response
-      let parsed: any;
-      try {
-        // Try to extract JSON from markdown code blocks
-        const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
-        if (jsonMatch) {
-          parsed = JSON.parse(jsonMatch[1]);
-        } else {
-          parsed = JSON.parse(content);
-        }
-      } catch (e) {
-        throw new Error('Invalid JSON response from OpenAI Assistant');
-      }
-      
-      // Handle both array and object with questions array
-      const questions = Array.isArray(parsed) ? parsed : (parsed.questions || parsed.data || []);
-      
-      if (!Array.isArray(questions) || questions.length === 0) {
-        throw new Error('Invalid response format from OpenAI - no questions found');
-      }
-      
-      // Randomize options for each question and ensure bookReference
-      const { getBookReferenceByAI } = await import('./bookReferenceService');
-      
-      const processedQuestions = await Promise.all(questions.map(async (q) => {
-        const correctAnswerText = q.options[q.correctAnswerIndex];
-        const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
-        const newCorrectAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
-        
-        // Use bookReference from AI if provided, validate it matches the question
-        let bookReference = q.bookReference;
-        if (!bookReference || bookReference.trim() === '') {
-          console.warn('Warning: AI did not provide book reference during generation, using fallback for question:', q.question.substring(0, 50));
-          try {
-            bookReference = await getBookReferenceByAI(q.question, undefined, documentContent);
-          } catch (error) {
-            console.warn('Failed to get book reference for question:', error);
-            bookReference = 'חלק 1';
-          }
-        } else {
-          // Validate that the reference matches the question topic
-          const { validateReferenceMatchesQuestion } = await import('./bookReferenceService');
-          const validation = validateReferenceMatchesQuestion(q.question, bookReference);
-          if (!validation.isValid) {
-            console.warn('Warning: Book reference does not match question topic:', {
-              question: q.question.substring(0, 50),
-              reference: bookReference,
-              reason: validation.reason,
-              suggested: validation.suggestedReference
-            });
-            // Try to get correct reference
-            if (validation.suggestedReference) {
-              bookReference = validation.suggestedReference;
-            } else {
-              try {
-                bookReference = await getBookReferenceByAI(q.question, undefined, documentContent);
-              } catch (error) {
-                console.warn('Failed to get correct book reference for question:', error);
-                // Keep original reference but log warning
-              }
-            }
-          }
-        }
-        
-        return {
-          ...q,
-          options: shuffledOptions,
-          correctAnswerIndex: newCorrectAnswerIndex !== -1 ? newCorrectAnswerIndex : 0,
-          bookReference
-        };
-      }));
-      
-      // Ensure topic diversity - filter out questions with duplicate topics
-      const { categorizeQuestionByTopic } = await import('./topicTrackingService');
-      const topicMap = new Map<string, QuizQuestion[]>();
-      
-      // Categorize all questions by topic
-      for (const question of processedQuestions) {
-        try {
-          const topic = await categorizeQuestionByTopic(question.question, documentContent || '');
-          if (!topicMap.has(topic)) {
-            topicMap.set(topic, []);
-          }
-          topicMap.get(topic)!.push(question);
-        } catch (error) {
-          console.warn('Failed to categorize question by topic:', error);
-          // If categorization fails, keep the question
-          if (!topicMap.has('נושא כללי')) {
-            topicMap.set('נושא כללי', []);
-          }
-          topicMap.get('נושא כללי')!.push(question);
-        }
-      }
-      
-      // Filter to ensure diversity: max 2 questions per topic (or 1 if count < 10)
-      const maxPerTopic = count < 10 ? 1 : 2;
-      const diverseQuestions: QuizQuestion[] = [];
-      const usedTopics = new Set<string>();
-      
-      // First pass: add one question from each topic
-      for (const [topic, topicQuestions] of topicMap.entries()) {
-        if (topicQuestions.length > 0 && diverseQuestions.length < count) {
-          const question = topicQuestions[0];
-          diverseQuestions.push(question);
-          usedTopics.add(topic);
-        }
-      }
-      
-      // Second pass: add more questions from different topics (up to maxPerTopic per topic)
-      for (const [topic, topicQuestions] of topicMap.entries()) {
-        if (diverseQuestions.length >= count) break;
-        const currentCount = diverseQuestions.filter(q => {
-          try {
-            // Check if question belongs to this topic (simplified check)
-            return topicQuestions.includes(q);
-          } catch {
-            return false;
-          }
-        }).length;
-        
-        if (currentCount < maxPerTopic && topicQuestions.length > currentCount) {
-          const additionalQuestion = topicQuestions[currentCount];
-          if (additionalQuestion && !diverseQuestions.includes(additionalQuestion)) {
-            diverseQuestions.push(additionalQuestion);
-          }
-        }
-      }
-      
-      // If we don't have enough questions, add remaining ones (even if same topic)
-      if (diverseQuestions.length < count) {
-        for (const question of processedQuestions) {
-          if (diverseQuestions.length >= count) break;
-          if (!diverseQuestions.includes(question)) {
-            diverseQuestions.push(question);
-          }
-        }
-      }
-      
-      // Shuffle to mix topics
-      return diverseQuestions.sort(() => Math.random() - 0.5).slice(0, count);
+      // OpenAI SDK Assistants API has a threading bug - disable it and fall back to chat completions
+      throw new Error('Assistants API disabled due to OpenAI SDK threading bug');
     } catch (assistantsError) {
-      console.warn('Failed to use Assistants API, falling back to chat completions:', assistantsError);
-      if (pdfAttachment) {
-        try {
-          await pdfAttachment.cleanup();
-        } catch (cleanupError) {
-          // Ignore cleanup errors
-        }
-      }
-      // Fall through to chat completions
+      console.warn('Assistants API disabled - using chat completions fallback:', assistantsError);
     }
   }
+  
   
   // Fallback to chat completions (with or without documentContent)
   // TABLE_OF_CONTENTS is already imported at the top of the function
@@ -911,7 +712,16 @@ ${blockTexts}
 }
 
 export async function generateQuiz(documentContent?: string, count: number = 10): Promise<QuizQuestion[]> {
-  // Try retrieval-first approach
+  // Skip retrieval-based generation (retrieve-blocks Edge Function has CORS issues)
+  // Use direct AI generation instead
+  return tryWithFallback(
+    () => generateQuizOpenAI(documentContent, count),
+    () => generateQuizGemini(documentContent, count),
+    "נכשל ביצירת שאלות הבוחן."
+  );
+  
+  // OLD CODE - Disabled due to retrieve-blocks CORS errors
+  /*
   try {
     return await generateQuizWithRetrieval(count);
   } catch (error: any) {
@@ -935,6 +745,7 @@ export async function generateQuiz(documentContent?: string, count: number = 10)
       "נכשל ביצירת שאלות הבוחן."
     );
   }
+  */
 }
 
 // Answer determination with OpenAI
