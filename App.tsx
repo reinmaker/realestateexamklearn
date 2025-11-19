@@ -16,6 +16,7 @@ import { fetchGeneratedQuestions } from './services/generatedQuestionsService';
 import { CloseIcon, MenuIcon } from './components/icons';
 import { documentContent } from './studyMaterial';
 import { generateQuiz, generateFlashcards, createChatSession, generateTargetedFlashcards, generateTargetedQuiz, generateQuizWithTopicDistribution, analyzeProgress } from './services/aiService';
+import { generateQuizFromPdfs, generateFlashcardsFromPdfs } from './services/geminiService';
 import { getDbQuestionsAsQuiz } from './services/supabaseService';
 import { getRandomFlashcards } from './services/flashcardBank';
 import { getCurrentUser, onAuthStateChange, signOut as authSignOut, User } from './services/authService';
@@ -670,11 +671,12 @@ const App: React.FC = () => {
         setAppError(null);
         
         try {
-          // Generate questions using AI
-          const aiQuestions = await generateQuiz(undefined, TOTAL_QUESTIONS);
+          // Generate questions from PDF materials (part1.pdf and part2.pdf)
+          // This is specific to reinforcement quiz - uses PDFs exclusively
+          const aiQuestions = await generateQuizFromPdfs(TOTAL_QUESTIONS);
           
           if (!aiQuestions || aiQuestions.length === 0) {
-            throw new Error('No questions generated');
+            throw new Error('No questions generated from PDFs');
           }
           
           // Randomize options for all questions
@@ -828,9 +830,9 @@ const App: React.FC = () => {
       const dbQuestions = await getDbQuestionsAsQuiz(TOTAL_FLASHCARDS, documentContent);
       
       if (dbQuestions.length === 0) {
-        console.warn('No questions found in database, falling back to AI generation');
-        // Fallback to AI if no DB questions available
-        const aiFlashcards = await generateFlashcards(documentContent, TOTAL_FLASHCARDS);
+        console.warn('No questions found in database, falling back to PDF-based generation');
+        // Fallback to PDF-based generation if no DB questions available
+        const aiFlashcards = await generateFlashcardsFromPdfs(TOTAL_FLASHCARDS);
         setFlashcards(aiFlashcards);
         return;
       }

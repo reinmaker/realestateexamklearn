@@ -525,6 +525,264 @@ ${TABLE_OF_CONTENTS}
   }
 }
 
+/**
+ * Generate quiz questions exclusively from PDF materials (part1.pdf and part2.pdf)
+ * This function REQUIRES PDFs to be attached - no fallback to text-only generation
+ * Used specifically for reinforcement quiz
+ */
+export async function generateQuizFromPdfs(count: number = 10): Promise<QuizQuestion[]> {
+  const ai = getAi();
+  try {
+    return await retryWithBackoff(async () => {
+      const { attachBookPdfsToGemini } = await import('./bookReferenceService');
+      
+      // STEP 1: Upload PDFs - REQUIRED, throw error if fails
+      let pdfAttachment: any = null;
+      let contents: any = null;
+      
+      try {
+        pdfAttachment = await attachBookPdfsToGemini(ai);
+      } catch (error) {
+        // PDF attachment is REQUIRED for reinforcement quiz - throw error instead of fallback
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const isNotFoundError = errorMessage.includes('Object not found') || 
+                               errorMessage.includes('not found') ||
+                               errorMessage.includes('not found in storage') ||
+                               (error as any)?.code === '404' ||
+                               (error as any)?.status === 404 ||
+                               (error as any)?.statusCode === 404 ||
+                               (error as any)?.statusCode === 400;
+        
+        if (isNotFoundError) {
+          throw new Error("קבצי ה-PDF לא נמצאו באחסון. אנא ודא שקבצי part1.pdf ו-part2.pdf קיימים.");
+        } else {
+          throw new Error(`נכשל בטעינת קבצי ה-PDF: ${errorMessage}`);
+        }
+      }
+      
+      // Verify PDFs were attached successfully
+      if (!pdfAttachment || !pdfAttachment.parts || pdfAttachment.parts.length === 0) {
+        throw new Error("קבצי ה-PDF לא נטענו בהצלחה. לא ניתן ליצור שאלות מבוחן חיזוק ללא קבצי ה-PDF.");
+      }
+      
+      // STEP 2: Use PDFs with text prompt - same as generateQuiz but without fallback
+      const prompt = `אתה מומחה ביצירת שאלות למבחן הרישוי למתווכי מקרקעין בישראל. 
+
+חשוב מאוד - חובה מוחלטת: כל השאלות חייבות להיות מבוססות אך ורק על התוכן בקבצי ה-PDF המצורפים (חלק 1 וחלק 2). אסור לך ליצור שאלות על בסיס ידע כללי או מידע שלא מופיע בקבצי ה-PDF. כל שאלה חייבת להיות מבוססת על תוכן ספציפי שקראת בקבצי ה-PDF. אם נושא לא מופיע בקבצי ה-PDF, אל תיצור שאלה עליו.
+
+תפקידך: ליצור סט חדש של בדיוק ${count} שאלות ייחודיות בפורמט מבחן אמריקאי על בסיס תוכן הספרים המצורפים (חלק 1 וחלק 2). השאלות צריכות לבחון את העקרונות המשפטיים המרכזיים המופיעים בספרים. לכל שאלה, ספק ארבע אפשרויות תשובה, את האינדקס של התשובה הנכונה, והסבר קצר במיוחד, בן משפט אחד בלבד. ההסבר חייב להיות פשוט, ישיר ובגובה העיניים. חשוב ביותר: חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד לא בהדגשה (כלומר, ללא כוכביות **). כל התוכן חייב להיות בעברית.
+
+חשוב מאוד - חובה: כל שאלה חייבת לכלול שדה bookReference עם הפניה מדויקת. זהו שדה חובה בפורמט ה-JSON. אל תחזיר שאלות ללא bookReference!
+
+תהליך יצירת כל שאלה - חשוב מאוד:
+1. קרא את התוכן בקבצי ה-PDF המצורפים. חפש נושאים ספציפיים שמופיעים בקבצים.
+2. לפני יצירת כל שאלה, חפש נושאים בחלקים שונים של הספר - לא רק בחלקים הראשונים! חפש נושאים גם בחלקים האמצעיים והסופיים של הספר.
+3. לפני יצירת כל שאלה, חפש בקבצי ה-PDF המצורפים את ההפניה המדויקת (שם החוק/התקנה, מספר הסעיף, ומספר העמוד).
+4. קרא את הטקסט הרלוונטי בקבצי ה-PDF, זהה את הסעיף המדויק ואת מספר העמוד.
+5. וודא שההפניה לספר תואמת בדיוק לנושא השאלה שאתה עומד ליצור. חפש את הנושא הספציפי של השאלה בקבצי ה-PDF, וזהה את ההפניה המדויקת לנושא הזה בלבד.
+6. רק לאחר שקראת את התוכן הספציפי בקבצי ה-PDF ומצאת את ההפניה המדויקת מהקובץ ווידאת שהיא תואמת לנושא השאלה, צור את השאלה המבוססת אך ורק על התוכן שקראת בקבצי ה-PDF.
+7. חובה: כל שאלה חייבת להיות מבוססת על תוכן ספציפי שקראת בקבצי ה-PDF. אל תיצור שאלות על נושאים שלא מופיעים בקבצים.
+8. חובה: כל שאלה חייבת לכלול את שדה bookReference עם ההפניה המדויקת שנמצאה. אל תחזיר שאלות ללא bookReference!
+9. חובה: ודא שהשאלות מכסות נושאים מכל חלקי הספר - מההתחלה, מהאמצע, ומהסוף. אל תיצור כל השאלות מהחלקים הראשונים!
+
+חשוב מאוד: כל שאלה חייבת להיות מבוססת אך ורק על תוכן שקראת בקבצי ה-PDF. אל תיצור שאלות על בסיס ידע כללי. כל שאלה חייבת לכלול הפניה מדויקת שנמצאה ישירות מהקובץ. אל תמציא הפניות. ההפניה חייבת להיות מדויקת ומבוססת על התוכן בפועל בקבצי ה-PDF. חובה לכלול את bookReference בכל שאלה!
+
+חשוב מאוד: אם נושא לא מופיע בקבצי ה-PDF, אל תיצור שאלה עליו. כל השאלות חייבות להיות מבוססות על תוכן ספציפי שקראת בקבצי ה-PDF.
+
+חשוב מאוד - חובה מוחלטת: קרא את כל התוכן בקבצי ה-PDF, לא רק חלקים מסוימים. ודא שאתה מבין את כל הנושאים המשפטיים בספר לפני יצירת שאלות. עבור על כל הפרקים והנושאים בספר, וודא שהשאלות מכסות נושאים מגוונים. קרא את כל התוכן בקבצי ה-PDF המצורפים, לא רק חלקים מסוימים.
+
+חשוב מאוד - חובה מוחלטת: אל תיצור כל השאלות מהחלקים הראשונים של הספר! ודא שהשאלות מכסות את כל חלקי הספר - מההתחלה, מהאמצע, ומהסוף. חפש נושאים בחלקים שונים של הספר:
+- חלק 1: עמודים 1-50 (מתווכים, חוקים בסיסיים)
+- חלק 1: עמודים 51-100 (הגנת הצרכן, חוזים, מכר דירות)
+- חלק 1: עמודים 101-150 (הגנת הדייר, תכנון ובנייה)
+- חלק 1: עמודים 151+ (מיסוי מקרקעין, נושאים מתקדמים)
+- חלק 2: כל הנושאים הנוספים
+
+חשוב מאוד: לפני יצירת כל שאלה, חפש נושאים בחלקים שונים של הספר. אל תתמקד רק בחלקים הראשונים. ודא שהשאלות מכסות נושאים מכל חלקי הספר - מההתחלה, מהאמצע, ומהסוף.
+
+חשוב מאוד - חובה מוחלטת: צור שאלות על נושאים מגוונים מהספר. אל תיצור כל השאלות על אותו נושא. כל שאלה חייבת להיות על נושא שונה מהשאלות הקודמות. ודא שהשאלות מכסות נושאים שונים כמו: מתווכים, הגנת הצרכן, חוזים, מקרקעין, מכר דירות, הגנת הדייר, תכנון ובנייה, מיסוי מקרקעין, ועוד. פרס את השאלות על פני נושאים שונים כדי לספק כיסוי מקיף של החומר.
+
+חשוב מאוד - חובה: לפני יצירת כל שאלה, בדוק את הנושאים של השאלות שכבר יצרת. וודא שהשאלה החדשה היא על נושא שונה לחלוטין מהשאלות הקודמות. אם כבר יצרת שאלה על "מתווכים", אל תיצור עוד שאלה על "מתווכים" - בחר נושא אחר כמו "הגנת הצרכן" או "מכר דירות". כל שאלה חייבת להיות על נושא ייחודי שלא הופיע בשאלות הקודמות.
+
+חשוב מאוד - חובה: ודא שהשאלות מכסות נושאים מכל חלקי הספר. אל תיצור כל השאלות מהחלקים הראשונים. צור שאלות גם מהחלקים האמצעיים והסופיים של הספר. חפש נושאים בחלקים שונים של הספר לפני יצירת כל שאלה.
+
+אל תקצר תהליכים - לכל שאלה בנפרד, חפש את ההפניה, וודא שהיא תואמת לנושא השאלה, ורק אז צור את השאלה. ההפניה חייבת להיות רלוונטית ישירות לנושא השאלה. אם השאלה על 'גילוי מידע מהותי', ההפניה חייבת להיות לסעיף שמדבר על 'גילוי מידע מהותי'.
+
+הוראות להפניה לספר:
+- כל ההפניות חייבות להיות לחלק 1 של הספר
+- לכל שאלה, ספק הפניה לספר בפורמט: "[שם החוק/התקנה המלא עם שנה] – סעיף X מופיע בעמ' Y בקובץ." או "[שם החוק/התקנה המלא עם שנה] מתחילות בעמ' Y בקובץ."
+- חשוב מאוד: אל תפנה ל'תקנות המתווכים במקרקעין (נושאי בחינה), התשנ"ז–1997' בעמודים 15-17. תקנות אלו אינן רלוונטיות ליצירת שאלות. השתמש רק בחוקים ותקנות אחרים.
+- אל תכלול הפניות ל'תקנות המתווכים במקרקעין (נושאי בחינה), התשנ"ז–1997' בעמודים 15-17.
+- חשוב מאוד: חוק המתווכים במקרקעין, התשנ"ו–1996 מופיע בעמודים 1-2, לא בעמוד 15. אל תפנה לחוק זה בעמוד 15. עמוד 15 מכיל תקנות, לא את החוק עצמו.
+- דוגמאות:
+  * "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 9 מופיע בעמ' 2 בקובץ."
+  * "תקנות המתווכים במקרקעין (פרטי הזמנה בכתב), התשנ"ז–1997 מתחילות בעמ' 15 בקובץ."`;
+
+      contents = [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            ...pdfAttachment.parts
+          ],
+        },
+      ];
+
+      // STEP 3: Generate questions with PDFs attached
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model,
+        contents: contents,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: quizSchema,
+        },
+      });
+      
+      // Cleanup PDFs after generation
+      if (pdfAttachment) {
+        try {
+          await pdfAttachment.cleanup();
+        } catch (cleanupError) {
+          console.warn('Failed to cleanup PDFs:', cleanupError);
+        }
+      }
+      
+      // Verify response structure
+      if (!response || !response.text) {
+        console.error('generateQuizFromPdfs: Invalid response structure:', response);
+        throw new Error("Invalid response from Gemini API");
+      }
+      
+      // Clean up potential markdown formatting before parsing
+      let cleanedText = response.text.replace(/^```json/, '').replace(/```$/, '').trim();
+      
+      // Verify cleaned text is valid JSON
+      let questions: QuizQuestion[];
+      try {
+        questions = JSON.parse(cleanedText) as QuizQuestion[];
+      } catch (parseError) {
+        console.error('generateQuizFromPdfs: JSON parse error:', parseError);
+        console.error('generateQuizFromPdfs: Failed to parse text:', cleanedText.substring(0, 1000));
+        throw new Error("Failed to parse Gemini response as JSON");
+      }
+        
+      if (!Array.isArray(questions)) {
+        throw new Error("AI response is not a JSON array.");
+      }
+        
+      // STEP 4: Validate that all questions have bookReference
+      const missingReferences: number[] = [];
+      questions.forEach((q, index) => {
+        if (!q.bookReference || q.bookReference.trim() === '') {
+          missingReferences.push(index + 1);
+          console.error(`generateQuizFromPdfs: ERROR - Question ${index + 1} is missing bookReference!`, {
+            question: q.question.substring(0, 50),
+            hasBookReference: !!q.bookReference,
+            bookReferenceValue: q.bookReference
+          });
+        }
+      });
+        
+      if (missingReferences.length > 0) {
+        console.error(`generateQuizFromPdfs: ERROR - ${missingReferences.length} questions are missing bookReference:`, missingReferences);
+        throw new Error(`שאלות חסרות הפניה לספר. נדרש bookReference בכל שאלה.`);
+      }
+        
+      // STEP 5: Process questions - shuffle options
+      const processedQuestions = questions.map((q, index) => {
+        const correctAnswerText = q.options[q.correctAnswerIndex];
+        const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
+        const newCorrectAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
+        
+        return {
+          ...q,
+          options: shuffledOptions,
+          correctAnswerIndex: newCorrectAnswerIndex !== -1 ? newCorrectAnswerIndex : 0,
+          bookReference: q.bookReference // Already validated above
+        };
+      });
+        
+      // STEP 6: Ensure topic diversity - filter out questions with duplicate topics
+      const { categorizeQuestionByTopic } = await import('./topicTrackingService');
+      const topicMap = new Map<string, QuizQuestion[]>();
+      
+      // Categorize all questions by topic
+      for (const question of processedQuestions) {
+        try {
+          const topic = await categorizeQuestionByTopic(question.question, '');
+          if (!topicMap.has(topic)) {
+            topicMap.set(topic, []);
+          }
+          topicMap.get(topic)!.push(question);
+        } catch (error) {
+          console.warn('generateQuizFromPdfs: Failed to categorize question by topic:', error);
+          // If categorization fails, keep the question
+          if (!topicMap.has('נושא כללי')) {
+            topicMap.set('נושא כללי', []);
+          }
+          topicMap.get('נושא כללי')!.push(question);
+        }
+      }
+      
+      // Filter to ensure diversity: max 2 questions per topic (or 1 if count < 10)
+      const maxPerTopic = count < 10 ? 1 : 2;
+      const diverseQuestions: QuizQuestion[] = [];
+      
+      // First pass: add one question from each topic
+      for (const [topic, topicQuestions] of topicMap.entries()) {
+        if (topicQuestions.length > 0 && diverseQuestions.length < count) {
+          const question = topicQuestions[0];
+          diverseQuestions.push(question);
+        }
+      }
+      
+      // Second pass: add more questions from different topics (up to maxPerTopic per topic)
+      for (const [topic, topicQuestions] of topicMap.entries()) {
+        if (diverseQuestions.length >= count) break;
+        const currentCount = diverseQuestions.filter(q => topicQuestions.includes(q)).length;
+        
+        if (currentCount < maxPerTopic && topicQuestions.length > currentCount) {
+          const additionalQuestion = topicQuestions[currentCount];
+          if (additionalQuestion && !diverseQuestions.includes(additionalQuestion)) {
+            diverseQuestions.push(additionalQuestion);
+          }
+        }
+      }
+      
+      // If we don't have enough questions, add remaining ones (even if same topic)
+      if (diverseQuestions.length < count) {
+        for (const question of processedQuestions) {
+          if (diverseQuestions.length >= count) break;
+          if (!diverseQuestions.includes(question)) {
+            diverseQuestions.push(question);
+          }
+        }
+      }
+      
+      // Shuffle to mix topics
+      const finalQuestions = diverseQuestions.sort(() => Math.random() - 0.5).slice(0, count);
+      
+      return finalQuestions;
+    });
+
+  } catch (error) {
+    console.error(`Error generating quiz from PDFs:`, error);
+    if (error instanceof SyntaxError) {
+      console.error("The response was not valid JSON.");
+    }
+    // Check if it's a retryable error
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('overloaded') || errorMessage.includes('503')) {
+      throw new Error("השירות עמוס כרגע. אנא נסה שוב בעוד כמה רגעים.");
+    }
+    // Re-throw the original error if it's about PDFs
+    if (errorMessage.includes('PDF') || errorMessage.includes('קבצי')) {
+      throw error;
+    }
+    throw new Error("נכשל ביצירת שאלות הבוחן מקבצי ה-PDF.");
+  }
+}
+
 
 /**
  * Determines the correct answer index and explanation for a question with options
@@ -725,6 +983,207 @@ ${TABLE_OF_CONTENTS}
         }
         throw new Error("נכשל ביצירת כרטיסיות. אנא נסה שוב.");
     }
+}
+
+/**
+ * Generate flashcards exclusively from PDF materials (part1.pdf and part2.pdf)
+ * This function REQUIRES PDFs to be attached - no fallback to text-only generation
+ * Flashcards use open-answer format (question-answer pairs), not multiple choice
+ * Used specifically for regular flashcard generation
+ */
+export async function generateFlashcardsFromPdfs(count: number = 10): Promise<Flashcard[]> {
+  const ai = getAi();
+  try {
+    return await retryWithBackoff(async () => {
+      const { attachBookPdfsToGemini } = await import('./bookReferenceService');
+      
+      // STEP 1: Upload PDFs - REQUIRED, throw error if fails
+      let pdfAttachment: any = null;
+      let contents: any = null;
+      
+      try {
+        pdfAttachment = await attachBookPdfsToGemini(ai);
+      } catch (error) {
+        // PDF attachment is REQUIRED for flashcard generation - throw error instead of fallback
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const isNotFoundError = errorMessage.includes('Object not found') || 
+                               errorMessage.includes('not found') ||
+                               errorMessage.includes('not found in storage') ||
+                               (error as any)?.code === '404' ||
+                               (error as any)?.status === 404 ||
+                               (error as any)?.statusCode === 404 ||
+                               (error as any)?.statusCode === 400;
+        
+        if (isNotFoundError) {
+          throw new Error("קבצי ה-PDF לא נמצאו באחסון. אנא ודא שקבצי part1.pdf ו-part2.pdf קיימים.");
+        } else {
+          throw new Error(`נכשל בטעינת קבצי ה-PDF: ${errorMessage}`);
+        }
+      }
+      
+      // Verify PDFs were attached successfully
+      if (!pdfAttachment || !pdfAttachment.parts || pdfAttachment.parts.length === 0) {
+        throw new Error("קבצי ה-PDF לא נטענו בהצלחה. לא ניתן ליצור כרטיסיות ללא קבצי ה-PDF.");
+      }
+      
+      // STEP 2: Use PDFs with text prompt - designed for open-answer flashcards
+      const prompt = `אתה מורה מומחה למבחן התיווך הישראלי. תפקידך הוא ליצור כרטיסיות לימוד בפורמט שאלה-תשובה פתוחה (לא מבחן אמריקאי).
+
+חשוב מאוד - חובה מוחלטת: כל הכרטיסיות חייבות להיות מבוססות אך ורק על התוכן בקבצי ה-PDF המצורפים (חלק 1 וחלק 2). אסור לך ליצור כרטיסיות על בסיס ידע כללי או מידע שלא מופיע בקבצי ה-PDF. כל כרטיסייה חייבת להיות מבוססת על תוכן ספציפי שקראת בקבצי ה-PDF. אם נושא לא מופיע בקבצי ה-PDF, אל תיצור כרטיסייה עליו.
+
+תפקידך: ליצור סט חדש של בדיוק ${count} כרטיסיות לימוד ייחודיות בפורמט שאלה-תשובה פתוחה על בסיס תוכן הספרים המצורפים (חלק 1 וחלק 2). הכרטיסיות צריכות להתמקד בעקרונות הליבה המשפטיים, ההגדרות והכללים המרכזיים המופיעים בספרים.
+
+מבנה כל כרטיסייה:
+- שאלה: שאלה ברורה וחד-משמעית על מושג, הגדרה, או כלל משפטי ספציפי
+- תשובה: תשובה קצרה ותמציתית מאוד - משפט אחד או שניים לכל היותר. התשובה חייבת להיות פשוטה, ישירה ובגובה העיניים
+- bookReference: הפניה מדויקת לספר (חובה מוחלטת)
+
+חשוב מאוד - חובה: כל כרטיסייה חייבת לכלול שדה bookReference עם הפניה מדויקת. זהו שדה חובה בפורמט ה-JSON. אל תחזיר כרטיסיות ללא bookReference!
+
+תהליך יצירת כל כרטיסייה - חשוב מאוד:
+1. קרא את התוכן בקבצי ה-PDF המצורפים. חפש מושגים, הגדרות וכללים ספציפיים שמופיעים בקבצים.
+2. לפני יצירת כל כרטיסייה, חפש נושאים בחלקים שונים של הספר - לא רק בחלקים הראשונים! חפש נושאים גם בחלקים האמצעיים והסופיים של הספר.
+3. לפני יצירת כל כרטיסייה, חפש בקבצי ה-PDF המצורפים את ההפניה המדויקת (שם החוק/התקנה, מספר הסעיף, ומספר העמוד).
+4. קרא את הטקסט הרלוונטי בקבצי ה-PDF, זהה את הסעיף המדויק ואת מספר העמוד.
+5. וודא שההפניה לספר תואמת בדיוק לנושא הכרטיסייה שאתה עומד ליצור. חפש את הנושא הספציפי של הכרטיסייה בקבצי ה-PDF, וזהה את ההפניה המדויקת לנושא הזה בלבד.
+6. רק לאחר שקראת את התוכן הספציפי בקבצי ה-PDF ומצאת את ההפניה המדויקת מהקובץ ווידאת שהיא תואמת לנושא הכרטיסייה, צור את הכרטיסייה המבוססת אך ורק על התוכן שקראת בקבצי ה-PDF.
+7. חובה: כל כרטיסייה חייבת להיות מבוססת על תוכן ספציפי שקראת בקבצי ה-PDF. אל תיצור כרטיסיות על נושאים שלא מופיעים בקבצים.
+8. חובה: כל כרטיסייה חייבת לכלול את שדה bookReference עם ההפניה המדויקת שנמצאה. אל תחזיר כרטיסיות ללא bookReference!
+9. חובה: ודא שהכרטיסיות מכסות נושאים מכל חלקי הספר - מההתחלה, מהאמצע, ומהסוף. אל תיצור כל הכרטיסיות מהחלקים הראשונים!
+
+חשוב מאוד: כל כרטיסייה חייבת להיות מבוססת אך ורק על תוכן שקראת בקבצי ה-PDF. אל תיצור כרטיסיות על בסיס ידע כללי. כל כרטיסייה חייבת לכלול הפניה מדויקת שנמצאה ישירות מהקובץ. אל תמציא הפניות. ההפניה חייבת להיות מדויקת ומבוססת על התוכן בפועל בקבצי ה-PDF. חובה לכלול את bookReference בכל כרטיסייה!
+
+חשוב מאוד: אם נושא לא מופיע בקבצי ה-PDF, אל תיצור כרטיסייה עליו. כל הכרטיסיות חייבות להיות מבוססות על תוכן ספציפי שקראת בקבצי ה-PDF.
+
+חשוב מאוד - חובה מוחלטת: קרא את כל התוכן בקבצי ה-PDF, לא רק חלקים מסוימים. ודא שאתה מבין את כל הנושאים המשפטיים בספר לפני יצירת כרטיסיות. עבור על כל הפרקים והנושאים בספר, וודא שהכרטיסיות מכסות נושאים מגוונים. קרא את כל התוכן בקבצי ה-PDF המצורפים, לא רק חלקים מסוימים.
+
+חשוב מאוד - חובה מוחלטת: אל תיצור כל הכרטיסיות מהחלקים הראשונים של הספר! ודא שהכרטיסיות מכסות את כל חלקי הספר - מההתחלה, מהאמצע, ומהסוף. חפש נושאים בחלקים שונים של הספר:
+- חלק 1: עמודים 1-50 (מתווכים, חוקים בסיסיים)
+- חלק 1: עמודים 51-100 (הגנת הצרכן, חוזים, מכר דירות)
+- חלק 1: עמודים 101-150 (הגנת הדייר, תכנון ובנייה)
+- חלק 1: עמודים 151+ (מיסוי מקרקעין, נושאים מתקדמים)
+- חלק 2: כל הנושאים הנוספים
+
+חשוב מאוד: לפני יצירת כל כרטיסייה, חפש נושאים בחלקים שונים של הספר. אל תתמקד רק בחלקים הראשונים. ודא שהכרטיסיות מכסות נושאים מכל חלקי הספר - מההתחלה, מהאמצע, ומהסוף.
+
+חשוב מאוד - חובה מוחלטת: צור כרטיסיות על נושאים מגוונים מהספר. אל תיצור כל הכרטיסיות על אותו נושא. כל כרטיסייה חייבת להיות על נושא שונה מהכרטיסיות הקודמות. ודא שהכרטיסיות מכסות נושאים שונים כמו: מתווכים, הגנת הצרכן, חוזים, מקרקעין, מכר דירות, הגנת הדייר, תכנון ובנייה, מיסוי מקרקעין, ועוד. פרס את הכרטיסיות על פני נושאים שונים כדי לספק כיסוי מקיף של החומר.
+
+חשוב מאוד - חובה: לפני יצירת כל כרטיסייה, בדוק את הנושאים של הכרטיסיות שכבר יצרת. וודא שהכרטיסייה החדשה היא על נושא שונה לחלוטין מהכרטיסיות הקודמות. אם כבר יצרת כרטיסייה על "מתווכים", אל תיצור עוד כרטיסייה על "מתווכים" - בחר נושא אחר כמו "הגנת הצרכן" או "מכר דירות". כל כרטיסייה חייבת להיות על נושא ייחודי שלא הופיע בכרטיסיות הקודמות.
+
+חשוב מאוד - חובה: ודא שהכרטיסיות מכסות נושאים מכל חלקי הספר. אל תיצור כל הכרטיסיות מהחלקים הראשונים. צור כרטיסיות גם מהחלקים האמצעיים והסופיים של הספר. חפש נושאים בחלקים שונים של הספר לפני יצירת כל כרטיסייה.
+
+אל תקצר תהליכים - לכל כרטיסייה בנפרד, חפש את ההפניה, וודא שהיא תואמת לנושא הכרטיסייה, ורק אז צור את הכרטיסייה. ההפניה חייבת להיות רלוונטית ישירות לנושא הכרטיסייה. אם הכרטיסייה על 'גילוי מידע מהותי', ההפניה חייבת להיות לסעיף שמדבר על 'גילוי מידע מהותי'.
+
+הוראות להפניה לספר:
+- כל ההפניות חייבות להיות לחלק 1 של הספר
+- לכל כרטיסייה, ספק הפניה לספר בפורמט: "[שם החוק/התקנה המלא עם שנה] – סעיף X מופיע בעמ' Y בקובץ." או "[שם החוק/התקנה המלא עם שנה] מתחילות בעמ' Y בקובץ."
+- חשוב מאוד: אל תפנה ל'תקנות המתווכים במקרקעין (נושאי בחינה), התשנ"ז–1997' בעמודים 15-17. תקנות אלו אינן רלוונטיות ליצירת כרטיסיות. השתמש רק בחוקים ותקנות אחרים.
+- אל תכלול הפניות ל'תקנות המתווכים במקרקעין (נושאי בחינה), התשנ"ז–1997' בעמודים 15-17.
+- חשוב מאוד: חוק המתווכים במקרקעין, התשנ"ו–1996 מופיע בעמודים 1-2, לא בעמוד 15. אל תפנה לחוק זה בעמוד 15. עמוד 15 מכיל תקנות, לא את החוק עצמו.
+- דוגמאות:
+  * "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 9 מופיע בעמ' 2 בקובץ."
+  * "תקנות המתווכים במקרקעין (פרטי הזמנה בכתב), התשנ"ז–1997 מתחילות בעמ' 15 בקובץ."
+
+חשוב: הכרטיסיות הן לפורמט שאלה-תשובה פתוחה, לא מבחן אמריקאי. אין צורך באפשרויות תשובה מרובות - רק שאלה ותשובה קצרה.`;
+
+      contents = [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            ...pdfAttachment.parts
+          ],
+        },
+      ];
+
+      // STEP 3: Generate flashcards with PDFs attached
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model,
+        contents: contents,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: flashcardSchema,
+        },
+      });
+      
+      // Cleanup PDFs after generation
+      if (pdfAttachment) {
+        try {
+          await pdfAttachment.cleanup();
+        } catch (cleanupError) {
+          console.warn('Failed to cleanup PDFs:', cleanupError);
+        }
+      }
+      
+      // Verify response structure
+      if (!response || !response.text) {
+        console.error('generateFlashcardsFromPdfs: Invalid response structure:', response);
+        throw new Error("Invalid response from Gemini API");
+      }
+      
+      // Clean up potential markdown formatting before parsing
+      let cleanedText = response.text.replace(/^```json/, '').replace(/```$/, '').trim();
+      
+      // Verify cleaned text is valid JSON
+      let flashcards: Flashcard[];
+      try {
+        flashcards = JSON.parse(cleanedText) as Flashcard[];
+      } catch (parseError) {
+        console.error('generateFlashcardsFromPdfs: JSON parse error:', parseError);
+        console.error('generateFlashcardsFromPdfs: Failed to parse text:', cleanedText.substring(0, 1000));
+        throw new Error("Failed to parse Gemini response as JSON");
+      }
+        
+      if (!Array.isArray(flashcards)) {
+        throw new Error("AI response is not a JSON array.");
+      }
+        
+      // STEP 4: Validate that all flashcards have bookReference
+      const missingReferences: number[] = [];
+      flashcards.forEach((card, index) => {
+        if (!card.bookReference || card.bookReference.trim() === '') {
+          missingReferences.push(index + 1);
+          console.error(`generateFlashcardsFromPdfs: ERROR - Flashcard ${index + 1} is missing bookReference!`, {
+            question: card.question.substring(0, 50),
+            hasBookReference: !!card.bookReference,
+            bookReferenceValue: card.bookReference
+          });
+        }
+      });
+        
+      if (missingReferences.length > 0) {
+        console.error(`generateFlashcardsFromPdfs: ERROR - ${missingReferences.length} flashcards are missing bookReference:`, missingReferences);
+        throw new Error(`כרטיסיות חסרות הפניה לספר. נדרש bookReference בכל כרטיסייה.`);
+      }
+        
+      // STEP 5: Process flashcards - ensure all have bookReference
+      const processedFlashcards = flashcards.map((card) => {
+        return {
+          question: card.question,
+          answer: card.answer,
+          bookReference: card.bookReference // Already validated above
+        };
+      });
+        
+      return processedFlashcards;
+    });
+
+  } catch (error) {
+    console.error(`Error generating flashcards from PDFs:`, error);
+    if (error instanceof SyntaxError) {
+      console.error("The response was not valid JSON.");
+    }
+    // Check if it's a retryable error
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('overloaded') || errorMessage.includes('503')) {
+      throw new Error("השירות עמוס כרגע. אנא נסה שוב בעוד כמה רגעים.");
+    }
+    // Re-throw the original error if it's about PDFs
+    if (errorMessage.includes('PDF') || errorMessage.includes('קבצי')) {
+      throw error;
+    }
+    throw new Error("נכשל ביצירת כרטיסיות מקבצי ה-PDF.");
+  }
 }
 
 export function createChatSession(documentContent: string): Chat {

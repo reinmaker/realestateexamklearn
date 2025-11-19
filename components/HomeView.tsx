@@ -302,7 +302,7 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
   return (
     <div className="flex-grow p-4 md:p-8 overflow-y-auto flex flex-col">
         {!emailConfirmed && (
-          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-2xl shadow-sm order-1 animate-slide-up" style={{ animationDelay: '0s', animationFillMode: 'both' }}>
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-2xl shadow-sm order-1 md:order-0 animate-slide-up" style={{ animationDelay: '0s', animationFillMode: 'both' }}>
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0">
                 <svg className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -377,8 +377,8 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
             </div>
         </div>
         
-        {/* Exam Readiness Bar - Now above AI analysis */}
-        <div className="mb-6 order-3 md:order-1 animate-fade-in" style={{ animationDelay: '0.1s', animationFillMode: 'both' }}>
+        {/* Exam Readiness Bar - At top on mobile, above AI analysis on desktop */}
+        <div className="mb-6 order-0 md:order-1 animate-fade-in" style={{ animationDelay: '0.1s', animationFillMode: 'both' }}>
             <ExamReadinessBar 
                 quizPassFail={quizPassFail}
                 totalQuizzes={totalQuizzes}
