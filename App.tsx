@@ -430,9 +430,13 @@ const App: React.FC = () => {
       if (quizProgress.isFinished && quizQuestions && quizHistory.length > 0 && currentUser && !statsSavedForQuizRef.current) {
         statsSavedForQuizRef.current = true; // Mark as saved to prevent duplicate saves
         
-        const correctAnswers = quizHistory.filter(r => r.isCorrect).length;
-        const score = correctAnswers;
-        const totalQuestions = quizHistory.length;
+        // Use quizProgress.score if available (more reliable, especially for test button)
+        // Otherwise calculate from quizHistory
+        const score = quizProgress.score !== undefined && quizProgress.score !== null 
+          ? quizProgress.score 
+          : quizHistory.filter(r => r.isCorrect).length;
+        const correctAnswers = score; // Use score as correctAnswers for consistency
+        const totalQuestions = quizQuestions.length; // Use quizQuestions length, not quizHistory length
         
         // Get current stats to calculate cumulative totals
         const { stats: currentStats } = await getUserStats(currentUser.id);

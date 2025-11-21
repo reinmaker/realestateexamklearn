@@ -65,6 +65,9 @@ interface ExamReadinessBarProps {
 }
 
 const ExamReadinessBar: React.FC<ExamReadinessBarProps> = ({ quizPassFail, totalQuizzes, averageScore }) => {
+    // Debug logging
+    console.log('ExamReadinessBar received props:', { quizPassFail, totalQuizzes, averageScore });
+    
     // Calculate readiness stage (1-4)
     // Stage 1: Beginner (0-2 quizzes or <50% pass rate)
     // Stage 2: Learning (3-5 quizzes and 50-65% pass rate)
@@ -218,6 +221,10 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
   // Fetch quiz sessions to calculate pass/fail counts
   useEffect(() => {
     const fetchQuizSessions = async () => {
+      // Minimal delay to allow session save to complete (300ms should be enough for DB write)
+      // userStats dependency triggers refresh immediately after quiz completion
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
@@ -236,16 +243,85 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
         const quizSessions = sessions.filter(s => s.session_type === 'quiz');
         
         // Calculate passed (>= 60%) and failed (< 60%)
-        // Ensure percentage is a number (handle string/number conversion)
+        // Handle both decimal (0.6) and percentage (60) formats, and null/undefined
+        console.log('Total quiz sessions found:', quizSessions.length);
+        console.log('Quiz sessions data:', quizSessions.map(s => ({ 
+          id: s.id, 
+          percentage: s.percentage, 
+          type: typeof s.percentage,
+          score: s.score,
+          total_questions: s.total_questions
+        })));
+        
         const passed = quizSessions.filter(s => {
-          const percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(s.percentage as any) || 0;
-          return percentage >= 60;
-        }).length;
-        const failed = quizSessions.filter(s => {
-          const percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(s.percentage as any) || 0;
-          return percentage < 60;
+          // Handle null/undefined percentage
+          if (s.percentage === null || s.percentage === undefined) {
+            // Calculate from score and total_questions if percentage is missing
+            if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
+              const calculatedPercentage = (s.score / s.total_questions) * 100;
+              console.log(`Quiz session ${s.id}: Missing percentage, calculated from score: ${calculatedPercentage}%`);
+              return calculatedPercentage >= 60;
+            }
+            console.log(`Quiz session ${s.id}: Missing percentage and score data, marking as failed`);
+            return false;
+          }
+          
+          let percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(String(s.percentage)) || 0;
+          
+          // Handle NaN
+          if (isNaN(percentage)) {
+            // Try to calculate from score
+            if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
+              percentage = (s.score / s.total_questions) * 100;
+            } else {
+              console.log(`Quiz session ${s.id}: Invalid percentage (NaN), marking as failed`);
+              return false;
+            }
+          }
+          
+          // If percentage is stored as decimal (0-1), convert to percentage (0-100)
+          if (percentage > 0 && percentage <= 1) {
+            percentage = percentage * 100;
+          }
+          
+          const isPassed = percentage >= 60;
+          console.log(`Quiz session ${s.id}: percentage=${percentage}, isPassed=${isPassed}, original=${s.percentage}, score=${s.score}, total=${s.total_questions}`);
+          return isPassed;
         }).length;
         
+        const failed = quizSessions.filter(s => {
+          // Handle null/undefined percentage
+          if (s.percentage === null || s.percentage === undefined) {
+            // Calculate from score and total_questions if percentage is missing
+            if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
+              const calculatedPercentage = (s.score / s.total_questions) * 100;
+              return calculatedPercentage < 60;
+            }
+            return true; // Mark as failed if no data
+          }
+          
+          let percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(String(s.percentage)) || 0;
+          
+          // Handle NaN
+          if (isNaN(percentage)) {
+            // Try to calculate from score
+            if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
+              percentage = (s.score / s.total_questions) * 100;
+            } else {
+              return true; // Mark as failed if invalid
+            }
+          }
+          
+          // If percentage is stored as decimal (0-1), convert to percentage (0-100)
+          if (percentage > 0 && percentage <= 1) {
+            percentage = percentage * 100;
+          }
+          
+          const isFailed = percentage < 60;
+          return isFailed;
+        }).length;
+        
+        console.log('Calculated pass/fail:', { passed, failed, total: quizSessions.length });
         setQuizPassFail({ passed, failed });
       } catch (error) {
         console.error('Error in fetchQuizSessions:', error);
@@ -254,7 +330,7 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
     };
     
     fetchQuizSessions();
-  }, [quizHistory, examHistory]); // Re-fetch when history changes
+  }, [quizHistory, examHistory, userStats]); // Re-fetch when history or stats change (stats updates immediately after quiz completion)
   
   // Use DB stats if available, otherwise calculate from history
   // Force recalculation when userStats changes by using JSON.stringify for deep comparison

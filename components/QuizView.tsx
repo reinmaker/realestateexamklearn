@@ -875,6 +875,60 @@ const QuizView: React.FC<QuizViewProps> = ({
             )}
           </div>
         </div>
+        
+        {/* Test Pass Button - Under Book Reference */}
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={() => {
+              if (!questions) return;
+              // Calculate passing score (72% = 18 out of 25)
+              const passingScore = Math.ceil(questions.length * 0.72);
+              // Count already answered correctly
+              const alreadyCorrect = userAnswers.slice(0, currentQuestionIndex).filter((ans, idx) => 
+                ans === questions[idx].correctAnswerIndex
+              ).length;
+              const remainingCorrect = Math.max(0, passingScore - alreadyCorrect);
+              
+              // Set answers: mark remaining questions as correct up to passing score
+              const testAnswers = [...userAnswers];
+              let correctCount = 0;
+              for (let i = currentQuestionIndex; i < questions.length; i++) {
+                if (correctCount < remainingCorrect) {
+                  testAnswers[i] = questions[i].correctAnswerIndex;
+                  correctCount++;
+                } else {
+                  // Mark rest as incorrect
+                  testAnswers[i] = (questions[i].correctAnswerIndex + 1) % questions[i].options.length;
+                }
+              }
+              setUserAnswers(testAnswers);
+              
+              // Simulate answering all remaining questions for history
+              for (let i = currentQuestionIndex; i < questions.length; i++) {
+                const q = questions[i];
+                const isCorrect = testAnswers[i] === q.correctAnswerIndex;
+                onQuestionAnswered({
+                  question: q.question,
+                  isCorrect: isCorrect,
+                  explanation: q.explanation,
+                });
+              }
+              
+              // Finish quiz with passing score
+              // The score will be used by saveUserSession to calculate percentage
+              console.log(`Test Pass: Setting score to ${passingScore} out of ${questions.length} (${Math.round((passingScore / questions.length) * 100)}%)`);
+              setQuizProgress(prev => ({
+                ...prev,
+                score: passingScore,
+                isFinished: true,
+              }));
+            }}
+            className="px-4 py-2 bg-green-600 text-white text-xs font-semibold rounded-xl hover:bg-green-700 transition-colors"
+            title="Test: Force Pass (72%)"
+          >
+            🧪 Test Pass
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -197,14 +197,37 @@ export async function saveUserSession(
   score: number
 ): Promise<{ error: Error | null }> {
   try {
-    const totalQuestions = results.length;
+    // Use questions.length as source of truth for total questions
+    // results.length might not include all questions if quiz finished early
+    const totalQuestions = questions && questions.length > 0 ? questions.length : results.length;
     // Handle both boolean and string/number formats for isCorrect
     const correctAnswers = results.filter(r => {
       const isCorrect = r?.isCorrect;
       // Check for boolean true, string "true", or 1
       return isCorrect === true || isCorrect === 'true' || isCorrect === 1 || isCorrect === '1';
     }).length;
-    const percentage = totalQuestions > 0 ? (correctAnswers / totalQuestions) * 100 : 0;
+    
+    // Calculate percentage - prioritize score parameter if available
+    let percentage = 0;
+    if (score !== undefined && score !== null && totalQuestions > 0) {
+      // Use score-based percentage as primary source (more reliable)
+      percentage = (score / totalQuestions) * 100;
+      console.log(`Saving session: Using score-based percentage: score=${score}, totalQuestions=${totalQuestions}, percentage=${percentage}%`);
+    } else if (totalQuestions > 0) {
+      // Fallback to results-based calculation
+      percentage = (correctAnswers / totalQuestions) * 100;
+      console.log(`Saving session: Using results-based percentage: correctAnswers=${correctAnswers}, totalQuestions=${totalQuestions}, percentage=${percentage}%`);
+    }
+    
+    // Log warning if there's a significant mismatch (indicates data inconsistency)
+    if (score !== undefined && score !== null && totalQuestions > 0) {
+      const resultsBasedPercentage = totalQuestions > 0 ? (correctAnswers / totalQuestions) * 100 : 0;
+      if (Math.abs(percentage - resultsBasedPercentage) > 5) {
+        console.warn(`Percentage mismatch: results-based=${resultsBasedPercentage}%, score-based=${percentage}%. Using score-based.`);
+      }
+    }
+    
+    console.log(`Saving session: score=${score}, correctAnswers=${correctAnswers}, totalQuestions=${totalQuestions}, final percentage=${percentage}%`);
 
     const { error } = await supabase
       .from('user_sessions')
