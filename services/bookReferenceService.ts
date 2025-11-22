@@ -2028,7 +2028,7 @@ export async function getBookReferenceByAI(
   // First try keyword-based matching for quick validation
   const keywordReference = getBookReferenceByKeywords(questionText);
   
-  // Use ONLY fast chat completions (OpenAI) - skip slow Gemini file search
+  // Try OpenAI Assistant first, then fall back to Gemini if assistant not found
   try {
     const aiReference = await getBookReferenceOpenAI(questionText, topic, documentContent);
       
@@ -2048,43 +2048,76 @@ export async function getBookReferenceByAI(
                                  keywordReference.includes('עמ\'') ||
                                  keywordReference.includes('עמוד');
       
+      // ALWAYS prefer AI response over keyword - OpenAI is more accurate
+      // Only use keyword as fallback if AI response is invalid
       if (aiIsNewFormat) {
-        // AI returned new format, validate and use it (prefer AI over keyword)
-        return validateReference(aiReference, questionText);
-      } else if (keywordIsNewFormat) {
-        // Keyword returned new format, use it
-        return validateReference(keywordReference, questionText);
+        // AI returned new format, validate and use it
+        const result = validateReference(aiReference, questionText);
+        return result;
+      } else if (keywordIsNewFormat && !aiReference.includes('חוק') && !aiReference.includes('תקנות') && !aiReference.includes('פרק')) {
+        // Only use keyword if AI response is completely invalid (no law/chapter references)
+        const result = validateReference(keywordReference, questionText);
+        return result;
       } else {
-        // Both are old format, check chapters
-        // If AI reference doesn't have chapter info but keyword does, still prefer AI if it looks valid
-        if (!aiChapterMatch && keywordChapterMatch) {
-          // AI doesn't have chapter, but has law name - prefer AI if it's a valid law reference
-          if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
-            return convertOldFormatToNew(aiReference, questionText);
-          }
+        // Both are old format or AI doesn't have new format markers
+        // ALWAYS prefer AI if it has any valid content - return OpenAI response as-is without validation
+        if (aiReference && (aiReference.includes('חוק') || aiReference.includes('תקנות') || aiReference.includes('פרק') || aiReference.includes('סעיף'))) {
+          // Return OpenAI response as-is without validation to preserve the exact response
+          return aiReference;
         }
-        if (aiChapterMatch && keywordChapterMatch && aiChapterMatch[1] === keywordChapterMatch[1]) {
-          // Chapters match, convert to new format
-          return convertOldFormatToNew(aiReference, questionText);
-        } else if (keywordChapterMatch) {
-          // Chapters don't match, but if AI reference looks valid (has law name), prefer it
-          if (aiReference.includes('חוק') || aiReference.includes('תקנות')) {
-            return convertOldFormatToNew(aiReference, questionText);
-          }
-          // Otherwise prefer keyword-based (more reliable)
-          console.warn('AI reference chapter mismatch, using keyword-based reference:', {
-            ai: aiReference,
-            keyword: keywordReference
-          });
-          return convertOldFormatToNew(keywordReference, questionText);
+        // Only fallback to keyword if AI is completely invalid
+        if (keywordIsNewFormat) {
+          const result = validateReference(keywordReference, questionText);
+          return result;
+        }
+        if (keywordReference) {
+          const result = convertOldFormatToNew(keywordReference, questionText);
+          return result;
         }
       }
     }
     
-    // Validate AI reference before returning (convert if old format)
-    return validateReference(aiReference, questionText);
+    // No keywordReference - return OpenAI response as-is without validation to preserve exact response
+    
+    // Check if response indicates "not found" - return it anyway
+    const notFoundPatterns = [
+      /לא נמצא/,
+      /לא נמצא בספר/,
+      /אנא עבור על חלק/,
+      /עבור על חלק/,
+      /חלק 2/,
+      /not found/i,
+      /no reference/i,
+      /לא קיים/,
+      /אין הפניה/
+    ];
+    
+    const isNotFoundMessage = notFoundPatterns.some(pattern => pattern.test(aiReference));
+    
+    if (isNotFoundMessage) {
+      return aiReference; // Return the "not found" message as-is
+    }
+    
+    // Return OpenAI response as-is without validation to preserve the exact response
+    // Only validate if it's in the new format (with "מופיע בעמ" or "מתחילות בעמ")
+    if (aiReference.includes('מופיע בעמ') || aiReference.includes('מתחילות בעמ')) {
+      // Only validate new format references to clean up page numbers and instruction text
+      const validatedRef = validateReference(aiReference, questionText);
+      return validatedRef;
+    }
+    
+    // For all other formats, return as-is
+    return aiReference;
   } catch (error) {
-    console.warn('OpenAI book reference failed, using keyword fallback:', (error as Error).message);
+    const errorMessage = (error as Error).message;
+    console.warn('OpenAI book reference failed:', errorMessage);
+    
+    // Handle specific error cases
+    if (errorMessage === 'REFERENCE_NOT_FOUND' || errorMessage === 'INVALID_REFERENCE_FORMAT') {
+      // Fall through to keyword fallback
+    }
+    
+    // No Gemini fallback - only use OpenAI or keyword-based fallback
     // Final fallback to keyword-based or default
     if (keywordReference) {
       // Convert to new format if it's old format
@@ -2099,15 +2132,14 @@ export async function getBookReferenceByAI(
 }
 
 /**
- * Get book reference using OpenAI
+ * Get book reference using OpenAI Assistant
  */
 async function getBookReferenceOpenAI(
   questionText: string,
   topic?: string,
   documentContent?: string
 ): Promise<string> {
-  // Import OpenAI dynamically
-  const OpenAI = (await import('openai')).default;
+  // Use direct REST API calls instead of SDK to avoid threadId becoming undefined bug
   const { getOpenAIKey } = await import('./apiKeysService');
   
   // Get API key
@@ -2122,445 +2154,229 @@ async function getBookReferenceOpenAI(
     throw new Error('OPENAI_API_KEY is not configured');
   }
   
-  const openai = new OpenAI({ 
-    apiKey,
-    dangerouslyAllowBrowser: true 
-  });
+  // Use the provided assistant ID (configurable via env var)
+  // Default assistant ID: asst_hFJgw8KS4jcE2rw6m0xQVaHS
+  const ASSISTANT_ID = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_ASSISTANT_ID) || 'asst_hFJgw8KS4jcE2rw6m0xQVaHS';
   
-  // Skip client-side PDF upload - use file-search-assistant Edge Function instead
-  // Check for cached vector store ID first
-  let vectorStoreId: string | null = null;
-  if (cachedVectorStoreId && (Date.now() - vectorStoreCacheTime) < VECTOR_STORE_CACHE_TTL) {
-    vectorStoreId = cachedVectorStoreId;
-  } else {
-    // Try to create vector store via Edge Function (non-blocking)
-    try {
-      const { supabase } = await import('./authService');
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session && edgeFunctionFailureCount < MAX_EDGE_FUNCTION_FAILURES) {
-        // Get a file ID first - we need to upload a file to OpenAI
-        // But we'll do this server-side via Edge Function
-        // For now, skip and use file-search-assistant which handles this server-side
-      }
-    } catch (err) {
-      console.warn('Failed to check session for vector store creation:', err);
+  const API_BASE = 'https://api.openai.com/v1';
+  const headers = {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'OpenAI-Beta': 'assistants=v2'
+  };
+  
+  try {
+    // Create a NEW Thread for each reference retrieval using REST API
+    // Each question gets its own isolated thread to prevent context mixing
+    const threadResponse = await fetch(`${API_BASE}/threads`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({})
+    });
+    
+    if (!threadResponse.ok) {
+      const error = await threadResponse.json().catch(() => ({ error: { message: 'Unknown error' } }));
+      throw new Error(`Failed to create thread: ${error.error?.message || threadResponse.statusText}`);
     }
-  }
-
-  // Use file search via Edge Function if we have a vector store ID
-  if (vectorStoreId) {
-    try {
-      const { supabase } = await import('./authService');
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
-
-      // Extract key legal terms from question for better search
-      const stopWords = ['את', 'של', 'על', 'עם', 'או', 'אם', 'כי', 'מה', 'איזה', 'למה', 'באיזה', 'האם'];
-      const keyTerms = questionText
-        .replace(/[?!.,]/g, '')
-        .split(/\s+/)
-        .filter(term => 
-          term.length > 3 && 
-          /[\u0590-\u05FF]/.test(term) &&
-          !stopWords.includes(term.toLowerCase())
-        )
-        .slice(0, 5)
-        .join(' ');
-
-      // Create a VERY specific search query
-      const searchQuery = `${questionText}
-
-מושגים מרכזיים: ${keyTerms}
-
-חפש בקבצי ה-PDF את:
-1. המושגים הספציפיים בשאלה: ${keyTerms}
-2. הקשר החוקי המדויק לנושא השאלה
-3. מצא את סעיף החוק המדויק (מספר סעיף, לא פרק) שדן בדיוק בנושא זה
-4. מצא את מספר העמוד המדויק בקובץ שבו מופיע הסעיף
-
-חשוב: ודא שהחוק שתמצא תואם לנושא השאלה. אם השאלה על תיווך - החוק חייב להיות חוק המתווכים. אם על מכר דירות - חוק המכר (דירות).`;
-
-      const response = await supabase.functions.invoke('file-search-assistant', {
-        body: {
-          vectorStoreId: vectorStoreId,
-          question: searchQuery,
-          topic: topic // Pass topic for better context
-        }
-      });
-
-      if (response.error) {
-        throw new Error(response.error.message || 'Edge Function error');
-      }
-
-      if (response.data?.success && response.data?.response) {
-        const result = response.data.response.trim();
-        
-        // Validate result
-        if (!result || result.includes('לא נמצאו') || result.includes('לא מצאתי') || result.includes('לא נמצא בקובץ') || result.length < 10) {
-          console.warn('File search returned empty/no results, falling back to chat completions');
-          return null;
-        }
-
-        // Validate that the law matches the topic (if topic is provided)
-        if (topic) {
-          const topicToLawMap: Record<string, string[]> = {
-            '1': ['המתווכים במקרקעין', 'המתווכים'],
-            '2': ['המכר (דירות)', 'המכר', 'דירות'],
-            '3': ['המקרקעין'],
-            '4': ['התכנון והבנייה', 'התכנון', 'הבנייה'],
-            '5': ['הגנת הדייר', 'הדייר'],
-            '6': ['רישום מקרקעין', 'רישום'],
-          };
-
-          const expectedLaws = topicToLawMap[topic] || [];
-          const resultLower = result.toLowerCase();
-          const matchesExpectedLaw = expectedLaws.some(law => resultLower.includes(law.toLowerCase()));
-
-          if (!matchesExpectedLaw && expectedLaws.length > 0) {
-            console.warn(`⚠️ Reference law doesn't match topic ${topic}. Expected: ${expectedLaws.join(' or ')}, Got: ${result.substring(0, 50)}`);
-            // Still return it, but log warning - sometimes cross-topic references are valid
-          }
-        }
-
-        return result;
-      }
-    } catch (fileSearchError) {
-      console.warn('File search failed:', (fileSearchError as Error).message);
-    }
-  }
-
-  // Fallback to chat completions
-  if (false && pdfAttachment && pdfAttachment.vectorStoreIds && pdfAttachment.vectorStoreIds.length > 0) {
-    try {
-      // OpenAI only accepts 1 vector store per assistant - use the first one (part 1)
-      const vectorStoreId = pdfAttachment.vectorStoreIds[0];
-      
-      // Create an Assistant with file_search tool
-      const assistant = await openai.beta.assistants.create({
-        model: 'gpt-4o-mini',
-        name: 'Book Reference Assistant',
-        instructions: `אתה מומחה בניתוח שאלות למבחן הרישוי למתווכי מקרקעין בישראל. 
-
-תפקידך: כאשר מקבלים שאלה, חפש בקובץ ה-PDF את הנושא המשפטי הרלוונטי, הבן את השאלה בהקשר של הספר, ומצא את ההפניה המדויקת (שם החוק/התקנה המלא עם שנה, מספר הסעיף המדויק, ומספר העמוד).
-
-השתמש בכלי file_search כדי לחפש בקובץ ה-PDF את הנושא מהשאלה. קרא את הטקסט הרלוונטי בקובץ כדי למצוא את הסעיף המדויק שמתייחס לנושא השאלה.
-
-פורמט התשובה:
-- אם יש סעיף ספציפי: "[שם החוק/התקנה המלא עם שנה] – סעיף X"
-- אם יש סעיף עם אות: "[שם החוק/התקנה המלא עם שנה] – סעיף Xא/ב/ג"
-- אם יש תת-סעיף: "[שם החוק/התקנה המלא עם שנה] – סעיף X(תת-סעיף)"
-- אם זה תחילת חוק/תקנה: "[שם החוק/התקנה המלא עם שנה]"
-
-חשוב:
-- חפש בקובץ ה-PDF את הנושא מהשאלה
-- מצא את הסעיף המדויק שמתייחס לנושא
-- קרא את הטקסט של הסעיף כדי לוודא שהוא רלוונטי
-- השתמש במספר העמוד המדויק מהקובץ
-- תמיד כלול את שם החוק המלא עם השנה
-
-החזר רק את ההפניה בפורמט הנדרש, ללא טקסט נוסף.`,
-        tools: [{ type: 'file_search' }],
-        tool_resources: {
-          file_search: {
-            vector_store_ids: [vectorStoreId]
-          }
-        }
-      });
-      
-      if (!assistant?.id) {
-        throw new Error('Failed to create assistant: assistant.id is undefined');
-      }
-      
-      const assistantId = assistant.id;
-      
-      // Create a Thread
-      const thread = await openai.beta.threads.create();
-      
-      if (!thread?.id) {
+    
+    const thread = await threadResponse.json();
+    const threadId = thread.id;
+    
+    if (!threadId) {
         throw new Error('Failed to create thread: thread.id is undefined');
       }
       
-      const threadId = thread.id;
-      
       // Add user message with the question
-      await openai.beta.threads.messages.create(threadId, {
+    const messageResponse = await fetch(`${API_BASE}/threads/${threadId}/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
         role: 'user',
-        content: `שאלה: ${questionText}
-
-חפש בקובץ ה-PDF את הנושא המשפטי מהשאלה ומצא את ההפניה המדויקת (שם החוק/התקנה המלא עם שנה, מספר הסעיף, ומספר העמוד).`
+        content: questionText
+      })
       });
+    
+    if (!messageResponse.ok) {
+      const error = await messageResponse.json().catch(() => ({ error: { message: 'Unknown error' } }));
+      throw new Error(`Failed to create message: ${error.error?.message || messageResponse.statusText}`);
+    }
       
       // Run the Assistant
-      const run = await openai.beta.threads.runs.create(threadId, {
-        assistant_id: assistantId
-      });
-      
-      if (!run?.id) {
-        throw new Error('Failed to create run: run.id is undefined');
-      }
-      
+    const runResponse = await fetch(`${API_BASE}/threads/${threadId}/runs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        assistant_id: ASSISTANT_ID
+      })
+    });
+    
+    if (!runResponse.ok) {
+      const error = await runResponse.json().catch(() => ({ error: { message: 'Unknown error' } }));
+      throw new Error(`Failed to create run: ${error.error?.message || runResponse.statusText}`);
+    }
+    
+    const run = await runResponse.json();
       const runId = run.id;
       
-      // CRITICAL: Capture IDs as strings immediately to prevent loss
-      const capturedThreadId = String(threadId);
-      const capturedRunId = String(runId);
-      
-      if (!capturedThreadId || capturedThreadId === 'undefined') {
-        throw new Error(`Failed to capture threadId: ${capturedThreadId}`);
-      }
-      if (!capturedRunId || capturedRunId === 'undefined') {
-        throw new Error(`Failed to capture runId: ${capturedRunId}`);
-      }
-      
-      // Wait for the run to complete
+    if (!runId) {
+      throw new Error('Failed to create run: run.id is undefined');
+    }
+    
+    // Wait for the run to complete by polling
       let runStatus = run.status;
       let pollCount = 0;
+    const MAX_POLLS = 60; // Maximum 60 seconds wait
       
-      while ((runStatus === 'queued' || runStatus === 'in_progress') && pollCount < 60) {
+    let currentRun = run;
+    while ((runStatus === 'queued' || runStatus === 'in_progress') && pollCount < MAX_POLLS) {
         await new Promise(resolve => setTimeout(resolve, 1000));
         pollCount++;
         
-        // Use captured string IDs, not original variables
-        const currentRun = await openai.beta.threads.runs.retrieve(capturedThreadId, capturedRunId);
+      // Use REST API to retrieve run status with captured threadId and runId
+      const retrieveResponse = await fetch(`${API_BASE}/threads/${threadId}/runs/${runId}`, {
+        method: 'GET',
+        headers
+      });
+      
+      if (!retrieveResponse.ok) {
+        const error = await retrieveResponse.json().catch(() => ({ error: { message: 'Unknown error' } }));
+        throw new Error(`Failed to retrieve run: ${error.error?.message || retrieveResponse.statusText}`);
+      }
+      
+      currentRun = await retrieveResponse.json();
         runStatus = currentRun.status;
         
         if (runStatus === 'failed' || runStatus === 'cancelled' || runStatus === 'expired') {
-          throw new Error(`Run ${runStatus}`);
-        }
+        const errorMsg = currentRun.last_error?.message || 'Unknown error';
+        throw new Error(`Run ${runStatus}: ${errorMsg}`);
       }
-      
-      // Retrieve the response using captured ID
-      const messages = await openai.beta.threads.messages.list(capturedThreadId);
-      const assistantMessage = messages.data.find(msg => msg.role === 'assistant');
-      
-      if (!assistantMessage?.content?.[0]) {
-        throw new Error('No response from assistant');
-      }
-      
-      const content = assistantMessage.content[0];
-      if (content.type !== 'text') {
-        throw new Error('Unexpected response type from assistant');
-      }
-      
-      const responseText = content.text.value.trim();
-      
-      // Clean up: delete assistant and PDFs
-      try {
-        await openai.beta.assistants.del(assistantId);
-        await pdfAttachment.cleanup();
-      } catch (cleanupError) {
-        console.warn('Failed to clean up OpenAI resources:', cleanupError);
-      }
-      
-      return responseText || 'חלק 1';
-    } catch (assistantsError) {
-      console.warn('Failed to use Assistants API with file_search, falling back to chat completions:', assistantsError);
-      // Fall through to chat completions fallback
     }
-  }
-  
-  // Fallback to chat completions if Assistants API fails or PDF is not available
-  const prompt = `אתה מומחה בניתוח שאלות למבחן הרישוי למתווכי מקרקעין בישראל. משימתך היא לקבוע את ההפניה המדויקת לספר "חלק 1" על בסיס נושא השאלה.
-
-⚠️ CRITICAL: כל הפניה MUST כלול מספר סעיף! אם אין סעיף ספציפי בשאלה, תמצא את הסעיף הרלוונטי בקובץ.
-
-השאלה:
-${questionText}
-
-${topic ? `נושא השאלה: ${topic}` : ''}
-
-תוכן העניינים של הספר "חלק 1":
----
-${TABLE_OF_CONTENTS}
----
-
-הספרים מצורפים כקבצי PDF לניתוח זה.
-
-⚠️ CRITICAL REQUIREMENT: כל ההפניות MUST לכלול סעיף ספציפי (סעיף X)!
-
-חשוב מאוד: כל ההפניות חייבות להיות לחלק 1 של הספר בלבד, גם אם הנושא מופיע גם בחלק 2.
-
-הוראות מפורטות לקביעת ההפניה:
-1. קרא את השאלה בעיון וזהה את הנושא המשפטי המרכזי
-2. חפש בקבצי ה-PDF (חלק 1 וחלק 2) את הנושא הספציפי מהשאלה
-   - חפש מילות מפתח מהשאלה (למשל: "גילוי", "מידע מהותי", "עניין אישי", "דמי תיווך", "הזמנה בכתב", "אחריות", "קבלן", "מסירת דירה", "עבודות בנייה", "היתר")
-   - מצא את הסעיף המדויק שמתייחס לנושא זה (למשל: "סעיף 8", "סעיף 8(ב)", "סעיף 9", "סעיף 10", "סעיף 4א", "סעיף 4ב", "סעיף 113", "סעיף 76")
-   - אם השאלה על "מידע מהותי" או "חובת המתווה לגלות", חפש "סעיף 8" או "סעיף 8(ב)"
-   - אם השאלה על "אחריות קבלן" או "מסירת דירה חדשה", חפש "סעיף 4ב" או "אחריות"
-   - אם השאלה על "עבודות בנייה" או "עבודות המחייבות היתר", חפש "סעיף 113" או "סעיף 76"
-   - קרא את הטקסט של הסעיף כדי לוודא שהוא מתייחס לנושא מהשאלה
-   - מצא את מספר העמוד המדויק שבו מופיע הסעיף (העמוד מופיע בתחילת כל עמוד בתוכן)
-   - חשוב: תמיד החזר הפניה לחלק 1 בלבד, גם אם הנושא מופיע גם בחלק 2
-3. מצא את שם החוק/התקנה המדויק (למשל: "חוק המתווכים במקרקעין" או "תקנות המתווכים במקרקעין (פרטי הזמנה בכתב)")
-4. ודא שמספר הסעיף שמצאת בקובץ ה-PDF תואם לנושא השאלה
-5. השתמש במספר העמוד המדויק שמופיע בקובץ ה-PDF (חלק 1)
-6. החזר הפניה בפורמט מדויק:
-   - ⚠️ MUST INCLUDE SECTION NUMBER: "[שם החוק/התקנה] – סעיף X"
-   - NEVER return just the law name without a section!
-   - דוגמאות (CORRECT):
-     * "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 9"
-     * "תקנות המתווכים במקרקעין (פרטי הזמנה בכתב), התשנ"ז–1997 – סעיף 1"
-     * "חוק הגנת הצרכן, התשמ"א–1981 – סעיף 4א"
-     * "חוק התכנון והבנייה, התשכ"ה–1965 – סעיף 113"
-
-מיפוי נושאים לפרקים:
-- מתווכים, דמי תיווך, רישיון מתווך, הזמנה בכתב → פרק 1: מתווכים
-- הגנת הצרכן, חוזה אחיד, הטעיה, ביטול מכר → פרק 2: הגנת הצרכן
-- חוזים, הפרת חוזה, ביטול חוזה, תרופות, הצעה וקיבול → פרק 3: חוזים
-- מקרקעין, בית משותף, בעלות, משכנתה, שכירות, זיקת הנאה → פרק 4: מקרקעין
-- מכר דירות, מפרט, אי התאמה, הבטחת השקעות → פרק 5: מכר
-- הגנת הדייר, דמי מפתח, פינוי, דייר מוגן → פרק 6: הגנת הדייר
-- תכנון ובנייה, תוכנית מיתאר, ועדה מקומית, היטל השבחה → פרק 7: תכנון ובנייה
-- מיסוי מקרקעין, מס רכישה, מס שבח, פטור דירת מגורים → פרק 8: מיסוי מקרקעין
-- עונשין, הונאה, מרמה, זיוף → פרק 9: עונשין
-- רישוי עסקים, רישיון עסק → פרק 10: רישוי עסקים
-- מקרקעי ישראל, איסור העברת בעלות → פרק 11: מקרקעי ישראל
-- הוצאה לפועל, עיקול, כונס נכסים, מימוש משכנתה → פרק 12: הוצאה לפועל
-- שמאי מקרקעין, שומת מקרקעין → פרק 13: שמאי מקרקעין
-- ירושה, מנהל עזבון, עיזבון → פרק 14: ירושה
-
-דוגמאות מדויקות לפורמט:
-- שאלה על "דמי תיווך" → חפש "דמי תיווך" או "סעיף 9" בתוכן הספר, מצא את העמוד → "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 9 מופיע בעמ' 2 בקובץ."
-- שאלה על "גילוי מידע מהותי" או "חובת המתווה לגלות" → חפש "מידע מהותי" או "סעיף 8" בתוכן הספר, מצא את העמוד → "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 8(ב) מופיע בעמ' 3 בקובץ."
-- שאלה על "עניין אישי" או "גילוי עניין אישי" → חפש "עניין אישי" או "סעיף 10" בתוכן הספר, מצא את העמוד → "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 10 מופיע בעמ' 2 בקובץ."
-- שאלה על "אחריות קבלן" או "מסירת דירה חדשה" → חפש "אחריות" או "סעיף 4ב" בתוכן הספר, מצא את העמוד → "חוק המכר (דירות), התשל"ג–1973 – סעיף 4ב מופיע בעמ' 57 בקובץ."
-- שאלה על "ביטול הזמנה" → חפש "ביטול" או "סעיף 9" או "סעיף 10" בתוכן הספר → "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 9 מופיע בעמ' 2 בקובץ." או "תקנות המתווכים במקרקעין (פרטי הזמנה בכתב), התשנ"ז–1997 מתחילות בעמ' 15 בקובץ."
-- שאלה על "חוזה אחיד" → חפש "חוזה אחיד" או "סעיף 4א" בתוכן הספר → "חוק הגנת הצרכן, התשמ"א–1981 – סעיף 4א מופיע בעמ' 20 בקובץ."
-- שאלה על "הפרת חוזה" → חפש "הפרת חוזה" או "תרופות" או "סעיף 1" בתוכן הספר → "חוק החוזים (תרופות בשל הפרת חוזה), התשל"א–1970 – סעיף 1 מופיע בעמ' 29 בקובץ."
-- שאלה על "בית משותף" → חפש "בית משותף" או "סעיף 42" בתוכן הספר → "חוק המקרקעין, התשכ"ט–1969 – סעיף 42 מופיע בעמ' 37 בקובץ."
-- שאלה על "מס רכישה" → חפש "מס רכישה" או "סעיף 9" בתוכן הספר → "חוק מיסוי מקרקעין (שבח ורכישה), התשכ"ג–1963 – סעיף 9 מופיע בעמ' 130 בקובץ."
-- שאלה על "דמי מפתח" → חפש "דמי מפתח" או "סעיף 74" בתוכן הספר → "חוק הגנת הדייר [נוסח משולב], התשל"ב–1972 – סעיף 74 מופיע בעמ' 85 בקובץ."
-- שאלה על "תוכנית מיתאר מקומית" → חפש "תוכנית מיתאר מקומית" או "סעיף 61" בתוכן הספר → "חוק התכנון והבנייה, התשכ"ה–1965 – סעיף 61 מופיע בעמ' 108 בקובץ."
-
-חשוב מאוד:
-- חובה! חפש בקבצי ה-PDF (חלק 1 וחלק 2) את המילים מהשאלה כדי למצוא את הסעיף המדויק
-- אל תמציא מספרי סעיפים! מצא אותם בקבצי ה-PDF
-- קרא את הטקסט של הסעיף בקבצים כדי לוודא שהוא מתייחס לנושא מהשאלה
-- מספר העמוד מופיע בקובץ ה-PDF (חלק 1) - השתמש במספר העמוד המדויק
-- אם מצאת "סעיף 8(ב)" בעמוד 3 בקובץ, החזר: "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 8(ב) מופיע בעמ' 3 בקובץ."
-- אם מצאת "סעיף 10" בעמוד 2 בקובץ, החזר: "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 10 מופיע בעמ' 2 בקובץ."
-- אם מצאת "סעיף 9" בעמוד 2 בקובץ, החזר: "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 9 מופיע בעמ' 2 בקובץ."
-- חשוב: תמיד כלול את שם החוק המלא עם השנה (למשל: "חוק המתווכים במקרקעין, התשנ"ו–1996")
-- כל מספר עמוד חייב להיות מדויק כפי שמופיע בספר (חלק 1)
-- כל מספר סעיף חייב להיות מדויק - אל תמציא מספרים!
-- השתמש רק בעמודים שמופיעים בתוכן העניינים המפורט! אל תשתמש בעמודים שלא מופיעים במפורט
-- תמיד החזר הפניה לחלק 1 בלבד, גם אם הנושא מופיע גם בחלק 2
-
-עמודים תקפים בפרק 1: מתווכים:
-- עמוד 1: חוק המתווכים במקרקעין
-- עמוד 2: (סעיפים בחוק המתווכים)
-- עמוד 10: תקנות המתווכים, פרק א' כללי, פרק ב' סדרי הבחינה
-- עמוד 11: פרק ג' רשיון ואגרות
-- עמוד 12: תוספת
-- עמוד 15: תקנות הזמנה בכתב, תקנות נושאי בחינה
-- עמוד 17: תקנות פעולות שיווק
-
-אל תשתמש בעמודים 3, 4, 5, 6, 7, 8, 9, 13, 14, 16 בפרק 1 כי הם לא מופיעים במפורט!
-
-אם נושא מופיע בסעיף שמפנה לעמוד שלא מופיע במפורט, השתמש בעמוד הקרוב ביותר שכן מופיע, או בעמוד תחילת החוק/התקנות הרלוונטיות.
-
-חשוב מאוד: החזר את ההפניה בפורמט החדש בלבד:
-- "[שם החוק/התקנה המלא עם שנה] – סעיף X" (אם יש סעיף ספציפי)
-- "[שם החוק/התקנה המלא עם שנה] – סעיף X(תת-סעיף)" (אם יש תת-סעיף)
-- "[שם החוק/התקנה המלא עם שנה]" (אם זה תחילת חוק/תקנה)
-- דוגמה: "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 8(ב)"
-
-אל תחזיר בפורמט הישן "חלק 1 - פרק X: [שם הפרק], עמוד Y"!
-
-החזר רק את ההפניה בפורמט הנדרש, ללא טקסט נוסף.`;
-
-  const response = await openai.responses.create({
-    model: 'gpt-4o-mini',
-    instructions: 'אתה מומחה בניתוח שאלות משפטיות וקביעת הפניות לספרים. אתה תמיד מחזיר את ההפניה בפורמט: "[שם החוק/התקנה המלא עם שנה] – סעיף X" או "[שם החוק/התקנה המלא עם שנה] – סעיף X(תת-סעיף)" או "[שם החוק/התקנה המלא עם שנה]" ללא טקסט נוסף. דוגמה: "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 8(ב)"',
-    input: prompt,
-    temperature: 0.3,
-    max_output_tokens: 100,
-  });
-
-  const content = response.output_text?.trim();
-  if (!content) {
-    throw new Error('No response from OpenAI');
-  }
-
-  // Clean the content: remove tabs, normalize whitespace
-  let cleanedContent = content
-    .replace(/\t/g, ' ')  // Replace tabs with spaces
-    .replace(/\s+/g, ' ')  // Normalize multiple spaces to single space
-    .trim();
-  
-  // Validate format - prefer new format
-  if (cleanedContent.includes('מופיע בעמ') || cleanedContent.includes('מתחילות בעמ')) {
-    // New format: "חוק X – סעיף Y מופיע בעמ' Z בקובץ."
-    return cleanedContent;
-  }
-  
-  // Try to extract new format reference if wrapped in quotes or other text
-  const newFormatMatch = cleanedContent.match(/(חוק|תקנות)[^–]+–\s*סעיף\s+[^.]*מופיע בעמ['\s]?\s*\d+[^.]*בקובץ/);
-  if (newFormatMatch) {
-    return newFormatMatch[0];
-  }
-  
-  // Try to extract "מתחילות בעמ" format
-  const startsAtMatch = cleanedContent.match(/(חוק|תקנות)[^.]*מתחילות בעמ['\s]?\s*\d+[^.]*בקובץ/);
-  if (startsAtMatch) {
-    return startsAtMatch[0];
-  }
-  
-  // CRITICAL: Validate that reference includes section number
-  const hasSectionNumber = /סעיף\s+\d+[א-ת]?|\(סעיף\s+\d+/.test(cleanedContent);
-  
-  if (!hasSectionNumber && (cleanedContent.includes('חוק') || cleanedContent.includes('תקנות'))) {
-    console.warn(`⚠️ Reference missing section number for: "${questionText.substring(0, 50)}..."`);
-    console.warn(`  Returned: "${cleanedContent}"`);
     
-    // Try keyword-based fallback with conversion
-    try {
-      const keywordRef = getBookReferenceByKeywords(questionText);
-      if (keywordRef) {
-        const convertedRef = convertOldFormatToNew(keywordRef, questionText);
-        return convertedRef;
-      }
-    } catch (error) {
-      console.warn('  Keyword fallback failed');
+    if (runStatus === 'incomplete') {
+      const incompleteDetails = currentRun.incomplete_details;
+      const reason = incompleteDetails?.reason || 'unknown';
+      throw new Error(`Run incomplete: ${reason}. The response may be truncated.`);
     }
-  }
-  
-  // If old format is returned, convert it
-  if (cleanedContent.startsWith('חלק 1 - פרק')) {
-    console.warn('⚠️ Converting old format:', cleanedContent);
-    return convertOldFormatToNew(cleanedContent, questionText);
-  }
-
-  // Try old format extraction and convert
-  const oldMatch = cleanedContent.match(/חלק 1 - פרק \d+: [^,]+,\s*עמוד \d+/);
-  if (oldMatch) {
-    console.warn('⚠️ Converting old format:', oldMatch[0]);
-    return convertOldFormatToNew(oldMatch[0], questionText);
-  }
-  
-  // Accept any reference that contains law name with section number
-  if (cleanedContent && hasSectionNumber && (cleanedContent.includes('חוק') || cleanedContent.includes('תקנות'))) {
-    return cleanedContent;
-  }
-  
-  // If no section number found, it's likely inaccurate - log and attempt keyword fallback
-  if (!hasSectionNumber) {
-    console.warn(`⚠️ Final attempt: no section number in: "${cleanedContent}"`);
-    try {
-      const keywordRef = getBookReferenceByKeywords(questionText);
-      if (keywordRef) {
-        return convertOldFormatToNew(keywordRef, questionText);
-      }
-    } catch (error) {
-      // continue
+    
+    if (runStatus !== 'completed') {
+      throw new Error(`Run did not complete. Status: ${runStatus}`);
     }
+    
+    // Retrieve the response (get the latest message, which should be from the assistant)
+    const messagesResponse = await fetch(`${API_BASE}/threads/${threadId}/messages?order=desc&limit=1`, {
+      method: 'GET',
+      headers
+    });
+    
+    if (!messagesResponse.ok) {
+      const error = await messagesResponse.json().catch(() => ({ error: { message: 'Unknown error' } }));
+      throw new Error(`Failed to retrieve messages: ${error.error?.message || messagesResponse.statusText}`);
+    }
+    
+    const messagesData = await messagesResponse.json();
+    const assistantMessage = messagesData.data?.[0];
+    
+    if (!assistantMessage || assistantMessage.role !== 'assistant') {
+      throw new Error('No assistant response found');
+    }
+    
+    if (!assistantMessage?.content?.[0]) {
+      throw new Error('No response content from assistant');
+    }
+    
+    const content = assistantMessage.content[0];
+    if (content.type !== 'text') {
+      throw new Error('Unexpected response type from assistant');
+    }
+    
+    let responseText = content.text.value;
+    
+    // Handle message annotations (file citations from file_search tool)
+    // Annotations appear as illegible substrings like 【13†source】 that need to be removed
+    if (content.text.annotations && content.text.annotations.length > 0) {
+      const annotations = content.text.annotations;
+      
+      // Process annotations in reverse order to maintain correct indices when replacing
+      for (let i = annotations.length - 1; i >= 0; i--) {
+        const annotation = annotations[i];
+        
+        // Simply remove the annotation text - don't add citations
+        responseText = responseText.replace(annotation.text, '');
+      }
+    }
+    
+    // Remove any remaining citation patterns like "[0]. [0] from part1.pdf" or similar
+    // Only remove numeric citations, NOT Hebrew text in brackets like [נוסח משולב]
+    const beforeCleanup = responseText;
+    responseText = responseText.replace(/\s*\[\d+\]\s*\.?\s*\[\d+\]\s*from\s+[\w\.]+/gi, '');
+    responseText = responseText.replace(/\s*\[\d+\]\s*\.?\s*from\s+[\w\.]+/gi, '');
+    // Only remove numeric citations at the end, not Hebrew text in brackets
+    responseText = responseText.replace(/\s*\[\d+\]\s*\.?\s*$/g, '');
+    
+    responseText = responseText.trim();
+    
+    // Log if cleanup removed significant content
+    if (beforeCleanup.length > responseText.length + 10) {
+      // Content was removed during citation cleanup
+    }
+    
+    // Validate result - but don't throw, just log warnings
+    if (!responseText || responseText.length < 10) {
+      console.warn('OpenAI Assistants API: Empty or very short response:', {
+        responseLength: responseText?.length || 0,
+        responseText: responseText?.substring(0, 100)
+      });
+      // Still return it if it exists, even if short
+      if (!responseText || responseText.trim().length === 0) {
+        throw new Error('Empty response from assistant');
+      }
+    }
+    
+    // Check if response indicates "not found" - log but still return it
+    const notFoundPatterns = [
+      /לא נמצא/,
+      /לא נמצא בספר/,
+      /אנא עבור על חלק/,
+      /עבור על חלק/,
+      /חלק 2/,
+      /not found/i,
+      /no reference/i,
+      /לא קיים/,
+      /אין הפניה/
+    ];
+    
+    const isNotFoundMessage = notFoundPatterns.some(pattern => pattern.test(responseText));
+    
+    if (isNotFoundMessage) {
+      console.warn('OpenAI Assistants API: Response indicates reference not found, but showing it anyway:', responseText);
+      // Don't throw - return the response so user can see it
+    }
+    
+    // Check if response contains valid book reference indicators - log but still return
+    const hasValidReference = /חוק|תקנות|סעיף|פרק|עמוד|עמ'/.test(responseText);
+    if (!hasValidReference) {
+      console.warn('OpenAI Assistants API: Response does not contain standard reference format, but showing it anyway:', responseText);
+      // Don't throw - return the response so user can see it
+    }
+    
+    // Clean up: Delete the thread after retrieval to prevent accumulation
+    // Each reference retrieval uses a new thread, so we clean it up when done
+    try {
+      await fetch(`${API_BASE}/threads/${threadId}`, {
+        method: 'DELETE',
+        headers
+      });
+    } catch (cleanupError) {
+      // Log but don't fail if cleanup fails - thread will expire automatically
+      console.warn('Failed to delete thread after reference retrieval:', cleanupError);
+    }
+    
+    return responseText;
+    
+  } catch (assistantsError) {
+    console.error('Failed to use Assistants API:', assistantsError);
+    throw assistantsError;
   }
-
-  return cleanedContent;
 }
 
 /**

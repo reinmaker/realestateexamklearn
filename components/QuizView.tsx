@@ -106,7 +106,6 @@ const QuizView: React.FC<QuizViewProps> = ({
     if (questions && questions.length > 0 && currentQuestionIndex >= questions.length) {
       const newIndex = Math.max(0, questions.length - 1);
       if (newIndex !== currentQuestionIndex) {
-        console.log(`Adjusting question index from ${currentQuestionIndex} to ${newIndex} (questions.length=${questions.length})`);
         setQuizProgress(prev => ({
           ...prev,
           currentQuestionIndex: newIndex,
@@ -139,11 +138,13 @@ const QuizView: React.FC<QuizViewProps> = ({
   
   // Effect 1: Handle book reference when question index changes (using stable question)
   useEffect(() => {
-    // Use stable question reference to prevent jumps when array reference changes
-    const stableQuestion = stableCurrentQuestionRef.current;
+    // Always use question from array directly to ensure we have the correct question for current index
+    const questionFromArray = questions && questions.length > 0 && currentQuestionIndex >= 0 && currentQuestionIndex < questions.length
+      ? questions[currentQuestionIndex]
+      : null;
     
-    if (!stableQuestion) {
-      // If no stable question yet, clear display
+    // If no question available, clear display
+    if (!questionFromArray) {
       if (!questions || questions.length === 0 || currentQuestionIndex >= questions.length) {
         setDisplayBookReference(null);
         setIsLoadingBookReference(false);
@@ -151,20 +152,15 @@ const QuizView: React.FC<QuizViewProps> = ({
         lastBookReferenceRef.current = null;
         return;
       }
-      // Wait for stable ref to be set
+      // Wait for question to be available
       return;
     }
     
-    const questionText = stableQuestion.question || '';
+    const questionText = questionFromArray.question || '';
     
-    // Verify the question from array matches (safety check)
-    const questionFromArray = questions && questions.length > 0 && currentQuestionIndex < questions.length
-      ? questions[currentQuestionIndex]
-      : null;
-    
-    // If question text doesn't match, something is wrong - wait for stable ref to update
-    if (questionFromArray && questionFromArray.question !== questionText) {
-      console.warn('Question text mismatch detected - waiting for stable ref to update');
+    // Verify we have a valid question text
+    if (!questionText || questionText.trim().length === 0) {
+      console.warn('QuizView: Empty question text at index', currentQuestionIndex);
       return;
     }
     
@@ -196,8 +192,8 @@ const QuizView: React.FC<QuizViewProps> = ({
     setIsLoadingBookReference(true);
     setShowBookReference(false);
     
-    // Check if book reference exists - prefer from array if updated (from preFetchBookReferences)
-    const bookReference = questionFromArray?.bookReference || stableQuestion.bookReference;
+    // Check if book reference exists (from database or previous fetch)
+    const bookReference = questionFromArray?.bookReference;
     
     if (bookReference) {
       // Check if it's already new format
@@ -210,7 +206,7 @@ const QuizView: React.FC<QuizViewProps> = ({
       } else {
         // Convert old format to new format
         import('../services/bookReferenceService').then(({ convertOldFormatToNew }) => {
-          const converted = convertOldFormatToNew(bookReference, stableQuestion.question);
+          const converted = convertOldFormatToNew(bookReference, questionText);
           setDisplayBookReference(converted);
           stableBookReferenceRef.current = converted;
           lastBookReferenceRef.current = converted;
@@ -221,7 +217,7 @@ const QuizView: React.FC<QuizViewProps> = ({
     } else {
       // Try to generate book reference if missing
       import('../services/bookReferenceService').then(({ getBookReferenceByAI }) => {
-        getBookReferenceByAI(stableQuestion.question, undefined, documentContent)
+        getBookReferenceByAI(questionText, undefined, documentContent)
           .then((generatedRef) => {
             setDisplayBookReference(generatedRef);
             stableBookReferenceRef.current = generatedRef;
@@ -238,55 +234,7 @@ const QuizView: React.FC<QuizViewProps> = ({
           });
       });
     }
-  }, [currentQuestionIndex]); // Only depend on index, not questions array
-  
-  // Effect 2: Update book reference when it becomes available in questions array (without resetting state)
-  useEffect(() => {
-    // Only update if we're on the same question (check by index AND question text)
-    const stableQuestion = stableCurrentQuestionRef.current;
-    if (!stableQuestion || stableCurrentQuestionIndexRef.current !== currentQuestionIndex) {
-      return; // Different question, ignore
-    }
-    
-    const stableQuestionText = stableQuestion.question || '';
-    
-    // Check if book reference was added/updated in questions array
-    // CRITICAL: Verify the question text matches to ensure we're getting the right book reference
-    const questionFromArray = questions && questions.length > 0 && currentQuestionIndex < questions.length
-      ? questions[currentQuestionIndex]
-      : null;
-    
-    // Verify this is the same question by comparing question text
-    if (!questionFromArray || questionFromArray.question !== stableQuestionText) {
-      return; // Different question at this index, ignore
-    }
-    
-    const bookRefFromArray = questionFromArray.bookReference;
-    
-    // If we have a new book reference that's different from what we have, update it smoothly
-    if (bookRefFromArray && bookRefFromArray !== lastBookReferenceRef.current) {
-      const questionKey = stableQuestionText;
-      
-      // Update stable ref and display
-      if (bookRefFromArray.includes('מופיע בעמ') || bookRefFromArray.includes('מתחילות בעמ')) {
-        setDisplayBookReference(bookRefFromArray);
-        stableBookReferenceRef.current = bookRefFromArray;
-        lastBookReferenceRef.current = bookRefFromArray;
-        setCachedBookReference(questionKey, bookRefFromArray);
-        setIsLoadingBookReference(false);
-      } else {
-        // Convert old format if needed
-        import('../services/bookReferenceService').then(({ convertOldFormatToNew }) => {
-          const converted = convertOldFormatToNew(bookRefFromArray, stableQuestionText);
-          setDisplayBookReference(converted);
-          stableBookReferenceRef.current = converted;
-          lastBookReferenceRef.current = converted;
-          setCachedBookReference(questionKey, converted);
-          setIsLoadingBookReference(false);
-        });
-      }
-    }
-  }, [questions, currentQuestionIndex]); // Watch for book reference updates in array
+  }, [currentQuestionIndex, questions]); // Fetch book reference when user reaches each question
 
   useEffect(() => {
     // If loading, start animated progress from 0% to 100% over 60 seconds
@@ -378,6 +326,31 @@ const QuizView: React.FC<QuizViewProps> = ({
       });
     }
   }, [questions]);
+
+  // Update stable ref only when index changes, not when questions array reference changes
+  // MUST be before any early returns to follow Rules of Hooks
+  useEffect(() => {
+    if (questions && questions.length > 0 && currentQuestionIndex >= 0 && currentQuestionIndex < questions.length) {
+      // Only update if index actually changed
+      if (stableCurrentQuestionIndexRef.current !== currentQuestionIndex) {
+        const newQuestion = questions[currentQuestionIndex];
+        stableCurrentQuestionRef.current = newQuestion;
+        stableCurrentQuestionIndexRef.current = currentQuestionIndex;
+        // Reset book reference refs when question changes
+        stableBookReferenceRef.current = null;
+        lastBookReferenceRef.current = null;
+      } else {
+        // Index hasn't changed, but questions array might have been updated (e.g., book references added)
+        // Update the stable ref with the latest question data, but only if it's the same question
+        const currentQuestionFromArray = questions[currentQuestionIndex];
+        if (currentQuestionFromArray && stableCurrentQuestionRef.current && 
+            currentQuestionFromArray.question === stableCurrentQuestionRef.current.question) {
+          // Same question - update stable ref with latest data (including book reference if added)
+          stableCurrentQuestionRef.current = currentQuestionFromArray;
+        }
+      }
+    }
+  }, [currentQuestionIndex, questions]); // Depend on both to sync book references when they're added
 
 
   const handleAnswerSelect = async (index: number) => {
@@ -783,30 +756,6 @@ const QuizView: React.FC<QuizViewProps> = ({
     );
   }
   
-  // Update stable ref only when index changes, not when questions array reference changes
-  useEffect(() => {
-    if (questions && questions.length > 0 && currentQuestionIndex >= 0 && currentQuestionIndex < questions.length) {
-      // Only update if index actually changed
-      if (stableCurrentQuestionIndexRef.current !== currentQuestionIndex) {
-        const newQuestion = questions[currentQuestionIndex];
-        stableCurrentQuestionRef.current = newQuestion;
-        stableCurrentQuestionIndexRef.current = currentQuestionIndex;
-        // Reset book reference refs when question changes
-        stableBookReferenceRef.current = null;
-        lastBookReferenceRef.current = null;
-      } else {
-        // Index hasn't changed, but questions array might have been updated (e.g., book references added)
-        // Update the stable ref with the latest question data, but only if it's the same question
-        const currentQuestionFromArray = questions[currentQuestionIndex];
-        const stableQuestion = stableCurrentQuestionRef.current;
-        if (currentQuestionFromArray && stableQuestion && currentQuestionFromArray.question === stableQuestion.question) {
-          // Same question - update stable ref with latest data (including book reference if added)
-          stableCurrentQuestionRef.current = currentQuestionFromArray;
-        }
-      }
-    }
-  }, [currentQuestionIndex, questions]); // Depend on both to sync book references when they're added
-  
   // Get current question - use stable ref if available, otherwise get from array
   const currentQuestion = questions && questions.length > 0 && currentQuestionIndex >= 0 && currentQuestionIndex < questions.length
     ? questions[currentQuestionIndex]
@@ -1038,60 +987,6 @@ const QuizView: React.FC<QuizViewProps> = ({
               </div>
             )}
           </div>
-        </div>
-        
-        {/* Test Pass Button - Under Book Reference */}
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={() => {
-              if (!questions) return;
-              // Calculate passing score (72% = 18 out of 25)
-              const passingScore = Math.ceil(questions.length * 0.72);
-              // Count already answered correctly
-              const alreadyCorrect = userAnswers.slice(0, currentQuestionIndex).filter((ans, idx) => 
-                ans === questions[idx].correctAnswerIndex
-              ).length;
-              const remainingCorrect = Math.max(0, passingScore - alreadyCorrect);
-              
-              // Set answers: mark remaining questions as correct up to passing score
-              const testAnswers = [...userAnswers];
-              let correctCount = 0;
-              for (let i = currentQuestionIndex; i < questions.length; i++) {
-                if (correctCount < remainingCorrect) {
-                  testAnswers[i] = questions[i].correctAnswerIndex;
-                  correctCount++;
-                } else {
-                  // Mark rest as incorrect
-                  testAnswers[i] = (questions[i].correctAnswerIndex + 1) % questions[i].options.length;
-                }
-              }
-              setUserAnswers(testAnswers);
-              
-              // Simulate answering all remaining questions for history
-              for (let i = currentQuestionIndex; i < questions.length; i++) {
-                const q = questions[i];
-                const isCorrect = testAnswers[i] === q.correctAnswerIndex;
-                onQuestionAnswered({
-                  question: q.question,
-                  isCorrect: isCorrect,
-                  explanation: q.explanation,
-                });
-              }
-              
-              // Finish quiz with passing score
-              // The score will be used by saveUserSession to calculate percentage
-              console.log(`Test Pass: Setting score to ${passingScore} out of ${questions.length} (${Math.round((passingScore / questions.length) * 100)}%)`);
-              setQuizProgress(prev => ({
-                ...prev,
-                score: passingScore,
-                isFinished: true,
-              }));
-            }}
-            className="px-4 py-2 bg-green-600 text-white text-xs font-semibold rounded-xl hover:bg-green-700 transition-colors"
-            title="Test: Force Pass (72%)"
-          >
-            🧪 Test Pass
-          </button>
         </div>
       </div>
     </div>

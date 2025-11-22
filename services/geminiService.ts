@@ -198,7 +198,6 @@ ${blockTexts}
 export async function generateQuiz(documentContent?: string, count: number = 10): Promise<QuizQuestion[]> {
   // Skip retrieval-based generation (retrieve-blocks Edge Function has CORS issues)
   // Use direct AI generation instead
-  console.log('Using direct AI generation (retrieval-based generation disabled)');
   // Fallback to existing AI-based approach
   const ai = getAi();
   try {
@@ -572,20 +571,17 @@ export async function generateQuizFromPdfs(count: number = 10): Promise<QuizQues
 
 תפקידך: ליצור סט חדש של בדיוק ${count} שאלות ייחודיות בפורמט מבחן אמריקאי על בסיס תוכן הספרים המצורפים (חלק 1 וחלק 2). השאלות צריכות לבחון את העקרונות המשפטיים המרכזיים המופיעים בספרים. לכל שאלה, ספק ארבע אפשרויות תשובה, את האינדקס של התשובה הנכונה, והסבר קצר במיוחד, בן משפט אחד בלבד. ההסבר חייב להיות פשוט, ישיר ובגובה העיניים. חשוב ביותר: חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד לא בהדגשה (כלומר, ללא כוכביות **). כל התוכן חייב להיות בעברית.
 
-חשוב מאוד - חובה: כל שאלה חייבת לכלול שדה bookReference עם הפניה מדויקת. זהו שדה חובה בפורמט ה-JSON. אל תחזיר שאלות ללא bookReference!
+הערה: אל תכלול שדה bookReference בשאלות. ההפניות לספר יטופלו מאוחר יותר.
 
 תהליך יצירת כל שאלה - חשוב מאוד:
 1. קרא את התוכן בקבצי ה-PDF המצורפים. חפש נושאים ספציפיים שמופיעים בקבצים.
 2. לפני יצירת כל שאלה, חפש נושאים בחלקים שונים של הספר - לא רק בחלקים הראשונים! חפש נושאים גם בחלקים האמצעיים והסופיים של הספר.
-3. לפני יצירת כל שאלה, חפש בקבצי ה-PDF המצורפים את ההפניה המדויקת (שם החוק/התקנה, מספר הסעיף, ומספר העמוד).
-4. קרא את הטקסט הרלוונטי בקבצי ה-PDF, זהה את הסעיף המדויק ואת מספר העמוד.
-5. וודא שההפניה לספר תואמת בדיוק לנושא השאלה שאתה עומד ליצור. חפש את הנושא הספציפי של השאלה בקבצי ה-PDF, וזהה את ההפניה המדויקת לנושא הזה בלבד.
-6. רק לאחר שקראת את התוכן הספציפי בקבצי ה-PDF ומצאת את ההפניה המדויקת מהקובץ ווידאת שהיא תואמת לנושא השאלה, צור את השאלה המבוססת אך ורק על התוכן שקראת בקבצי ה-PDF.
-7. חובה: כל שאלה חייבת להיות מבוססת על תוכן ספציפי שקראת בקבצי ה-PDF. אל תיצור שאלות על נושאים שלא מופיעים בקבצים.
-8. חובה: כל שאלה חייבת לכלול את שדה bookReference עם ההפניה המדויקת שנמצאה. אל תחזיר שאלות ללא bookReference!
-9. חובה: ודא שהשאלות מכסות נושאים מכל חלקי הספר - מההתחלה, מהאמצע, ומהסוף. אל תיצור כל השאלות מהחלקים הראשונים!
+3. קרא את הטקסט הרלוונטי בקבצי ה-PDF.
+4. רק לאחר שקראת את התוכן הספציפי בקבצי ה-PDF, צור את השאלה המבוססת אך ורק על התוכן שקראת בקבצי ה-PDF.
+5. חובה: כל שאלה חייבת להיות מבוססת על תוכן ספציפי שקראת בקבצי ה-PDF. אל תיצור שאלות על נושאים שלא מופיעים בקבצים.
+6. חובה: ודא שהשאלות מכסות נושאים מכל חלקי הספר - מההתחלה, מהאמצע, ומהסוף. אל תיצור כל השאלות מהחלקים הראשונים!
 
-חשוב מאוד: כל שאלה חייבת להיות מבוססת אך ורק על תוכן שקראת בקבצי ה-PDF. אל תיצור שאלות על בסיס ידע כללי. כל שאלה חייבת לכלול הפניה מדויקת שנמצאה ישירות מהקובץ. אל תמציא הפניות. ההפניה חייבת להיות מדויקת ומבוססת על התוכן בפועל בקבצי ה-PDF. חובה לכלול את bookReference בכל שאלה!
+חשוב מאוד: כל שאלה חייבת להיות מבוססת אך ורק על תוכן שקראת בקבצי ה-PDF. אל תיצור שאלות על בסיס ידע כללי.
 
 חשוב מאוד: אם נושא לא מופיע בקבצי ה-PDF, אל תיצור שאלה עליו. כל השאלות חייבות להיות מבוססות על תוכן ספציפי שקראת בקבצי ה-PDF.
 
@@ -606,17 +602,7 @@ export async function generateQuizFromPdfs(count: number = 10): Promise<QuizQues
 
 חשוב מאוד - חובה: ודא שהשאלות מכסות נושאים מכל חלקי הספר. אל תיצור כל השאלות מהחלקים הראשונים. צור שאלות גם מהחלקים האמצעיים והסופיים של הספר. חפש נושאים בחלקים שונים של הספר לפני יצירת כל שאלה.
 
-אל תקצר תהליכים - לכל שאלה בנפרד, חפש את ההפניה, וודא שהיא תואמת לנושא השאלה, ורק אז צור את השאלה. ההפניה חייבת להיות רלוונטית ישירות לנושא השאלה. אם השאלה על 'גילוי מידע מהותי', ההפניה חייבת להיות לסעיף שמדבר על 'גילוי מידע מהותי'.
-
-הוראות להפניה לספר:
-- כל ההפניות חייבות להיות לחלק 1 של הספר
-- לכל שאלה, ספק הפניה לספר בפורמט: "[שם החוק/התקנה המלא עם שנה] – סעיף X מופיע בעמ' Y בקובץ." או "[שם החוק/התקנה המלא עם שנה] מתחילות בעמ' Y בקובץ."
-- חשוב מאוד: אל תפנה ל'תקנות המתווכים במקרקעין (נושאי בחינה), התשנ"ז–1997' בעמודים 15-17. תקנות אלו אינן רלוונטיות ליצירת שאלות. השתמש רק בחוקים ותקנות אחרים.
-- אל תכלול הפניות ל'תקנות המתווכים במקרקעין (נושאי בחינה), התשנ"ז–1997' בעמודים 15-17.
-- חשוב מאוד: חוק המתווכים במקרקעין, התשנ"ו–1996 מופיע בעמודים 1-2, לא בעמוד 15. אל תפנה לחוק זה בעמוד 15. עמוד 15 מכיל תקנות, לא את החוק עצמו.
-- דוגמאות:
-  * "חוק המתווכים במקרקעין, התשנ"ו–1996 – סעיף 9 מופיע בעמ' 2 בקובץ."
-  * "תקנות המתווכים במקרקעין (פרטי הזמנה בכתב), התשנ"ז–1997 מתחילות בעמ' 15 בקובץ."`;
+אל תקצר תהליכים - לכל שאלה בנפרד, קרא את התוכן הרלוונטי בקבצי ה-PDF, ורק אז צור את השאלה.`;
 
       contents = [
         {
@@ -670,25 +656,7 @@ export async function generateQuizFromPdfs(count: number = 10): Promise<QuizQues
         throw new Error("AI response is not a JSON array.");
       }
         
-      // STEP 4: Validate that all questions have bookReference
-      const missingReferences: number[] = [];
-      questions.forEach((q, index) => {
-        if (!q.bookReference || q.bookReference.trim() === '') {
-          missingReferences.push(index + 1);
-          console.error(`generateQuizFromPdfs: ERROR - Question ${index + 1} is missing bookReference!`, {
-            question: q.question.substring(0, 50),
-            hasBookReference: !!q.bookReference,
-            bookReferenceValue: q.bookReference
-          });
-        }
-      });
-        
-      if (missingReferences.length > 0) {
-        console.error(`generateQuizFromPdfs: ERROR - ${missingReferences.length} questions are missing bookReference:`, missingReferences);
-        throw new Error(`שאלות חסרות הפניה לספר. נדרש bookReference בכל שאלה.`);
-      }
-        
-      // STEP 5: Process questions - shuffle options
+      // STEP 4: Process questions - shuffle options and remove bookReference (will be fetched on-demand)
       const processedQuestions = questions.map((q, index) => {
         const correctAnswerText = q.options[q.correctAnswerIndex];
         const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
@@ -698,7 +666,7 @@ export async function generateQuizFromPdfs(count: number = 10): Promise<QuizQues
           ...q,
           options: shuffledOptions,
           correctAnswerIndex: newCorrectAnswerIndex !== -1 ? newCorrectAnswerIndex : 0,
-          bookReference: q.bookReference // Already validated above
+          bookReference: undefined // Will be fetched on-demand when user reaches each question
         };
       });
         

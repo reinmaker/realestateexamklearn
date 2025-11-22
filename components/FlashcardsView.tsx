@@ -63,6 +63,11 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
 
   const [isAudioLoading, setIsAudioLoading] = useState<'question' | 'answer' | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  
+  // Refs for stable book reference tracking (matching QuizView pattern)
+  const stableBookReferenceRef = useRef<string | null>(null);
+  const lastBookReferenceRef = useRef<string | null>(null);
+  const lastQuestionTextRef = useRef<string | null>(null);
 
   const loadingMessages = [
     'סורק את חומר הלימוד ומזהה נושאי ליבה...',
@@ -103,62 +108,120 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
     // Don't reset displayBookReference here - let the book reference useEffect handle it with cache
   }, [currentIndex]);
   
-  // Convert book reference to new format when card changes
+  // Effect: Fetch book reference when user reaches each flashcard (matching QuizView pattern)
   useEffect(() => {
-    if (!flashcards || flashcards.length === 0 || currentIndex >= flashcards.length) {
-      setDisplayBookReference(null);
-      setIsLoadingBookReference(false);
+    // Always use flashcard from array directly to ensure we have the correct card for current index
+    const cardFromArray = flashcards && flashcards.length > 0 && currentIndex >= 0 && currentIndex < flashcards.length
+      ? flashcards[currentIndex]
+      : null;
+    
+    // If no card available, clear display
+    if (!cardFromArray) {
+      if (!flashcards || flashcards.length === 0 || currentIndex >= flashcards.length) {
+        setDisplayBookReference(null);
+        setIsLoadingBookReference(false);
+        stableBookReferenceRef.current = null;
+        lastBookReferenceRef.current = null;
+        return;
+      }
+      // Wait for card to be available
       return;
     }
     
-    const currentCard = flashcards[currentIndex];
-    const questionKey = currentCard.question; // Use question text as cache key
+    const questionText = cardFromArray.question || '';
+    
+    // Verify we have a valid question text
+    if (!questionText || questionText.trim().length === 0) {
+      console.warn('FlashcardsView: Empty question text at index', currentIndex);
+      return;
+    }
+    
+    // Only run if the question text actually changed (index changed)
+    if (questionText === lastQuestionTextRef.current) {
+      // Same question - use stable book reference if available
+      if (stableBookReferenceRef.current !== null) {
+        setDisplayBookReference(stableBookReferenceRef.current);
+        setIsLoadingBookReference(false);
+      }
+      return; // Same question, don't reload book reference
+    }
+    
+    // Question changed - reset and load new reference
+    lastQuestionTextRef.current = questionText;
+    const questionKey = questionText; // Use question text as cache key
     
     // Check module-level cache first
     if (hasCachedBookReference(questionKey)) {
       const cachedRef = getCachedBookReference(questionKey);
       setDisplayBookReference(cachedRef || null);
+      stableBookReferenceRef.current = cachedRef || null;
+      lastBookReferenceRef.current = cachedRef || null;
       setIsLoadingBookReference(false);
       return;
     }
     
-    // Reset loading state when card changes (but keep reference if cached)
+    // Reset loading state when question changes
     setIsLoadingBookReference(true);
     setShowBookReference(false);
     
-    if (currentCard?.bookReference) {
-      const ref = currentCard.bookReference;
+    // Check if book reference exists (from database or previous fetch)
+    const bookReference = cardFromArray?.bookReference;
+    
+    if (bookReference) {
       // Check if it's already new format
-      if (ref.includes('מופיע בעמ') || ref.includes('מתחילות בעמ')) {
-        setDisplayBookReference(ref);
-        setCachedBookReference(questionKey, ref); // Cache it in module-level cache
+      if (bookReference.includes('מופיע בעמ') || bookReference.includes('מתחילות בעמ')) {
+        setDisplayBookReference(bookReference);
+        stableBookReferenceRef.current = bookReference;
+        lastBookReferenceRef.current = bookReference;
+        setCachedBookReference(questionKey, bookReference);
         setIsLoadingBookReference(false);
       } else {
         // Convert old format to new format
         import('../services/bookReferenceService').then(({ convertOldFormatToNew }) => {
-          const converted = convertOldFormatToNew(ref, currentCard.question);
+          const converted = convertOldFormatToNew(bookReference, questionText);
           setDisplayBookReference(converted);
-          setCachedBookReference(questionKey, converted); // Cache it in module-level cache
+          stableBookReferenceRef.current = converted;
+          lastBookReferenceRef.current = converted;
+          setCachedBookReference(questionKey, converted);
           setIsLoadingBookReference(false);
         });
       }
     } else {
       // Try to generate book reference if missing
       import('../services/bookReferenceService').then(({ getBookReferenceByAI }) => {
-        getBookReferenceByAI(currentCard.question, undefined, documentContent)
+        getBookReferenceByAI(questionText, undefined, documentContent)
           .then((generatedRef) => {
+            // Always display the OpenAI response, even if it indicates "not found"
             setDisplayBookReference(generatedRef);
-            setCachedBookReference(questionKey, generatedRef); // Cache it in module-level cache
+            stableBookReferenceRef.current = generatedRef;
+            lastBookReferenceRef.current = generatedRef;
+            setCachedBookReference(questionKey, generatedRef);
             setIsLoadingBookReference(false);
+            console.log('FlashcardsView: Received book reference from AI:', {
+              length: generatedRef.length,
+              preview: generatedRef.substring(0, 100),
+              full: generatedRef
+            });
           })
           .catch((error) => {
             console.warn('FlashcardsView: Failed to generate bookReference:', error);
-            setDisplayBookReference(null);
+            // Only set to null if it's a real error, not a "not found" response
+            const errorMessage = (error as Error).message;
+            if (errorMessage.includes('not found') || errorMessage.includes('לא נמצא')) {
+              // This shouldn't happen since we return "not found" responses now, but handle it just in case
+              setDisplayBookReference(errorMessage);
+              stableBookReferenceRef.current = errorMessage;
+              lastBookReferenceRef.current = errorMessage;
+            } else {
+              setDisplayBookReference(null);
+              stableBookReferenceRef.current = null;
+              lastBookReferenceRef.current = null;
+            }
             setIsLoadingBookReference(false);
           });
       });
     }
-  }, [flashcards, currentIndex, documentContent]);
+  }, [currentIndex, flashcards, documentContent]); // Fetch book reference when user reaches each flashcard
 
   const handleNext = () => {
     if (!flashcards || flashcards.length === 0) return;

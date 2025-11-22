@@ -4,14 +4,13 @@ import { getAllUsers, getUserDetails, deleteUser, updateUser, resetUserProgress 
 import { CloseIcon, UserIcon, TrashIcon, PencilIcon, SearchIcon, DocumentIcon, PlusIcon } from './icons';
 import QuoteList from './QuoteList';
 import QuoteForm from './QuoteForm';
-import { ExtractPdfButton } from './ExtractPdfButton';
 
 interface AdminViewProps {
   currentUser: { id: string; email?: string; name?: string } | null;
 }
 
 const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'quotes' | 'pdf'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'quotes'>('users');
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<UserDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -219,16 +218,6 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
             }`}
           >
             הצעות מחיר
-          </button>
-          <button
-            onClick={() => setActiveTab('pdf')}
-            className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${
-              activeTab === 'pdf'
-                ? 'bg-sky-600 text-white border-b-2 border-sky-600'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            כלים - PDF
           </button>
         </div>
 
@@ -635,16 +624,6 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                 </div>
               </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'pdf' && (
-          <div className="space-y-6">
-            <div className="mb-6">
-              <h2 className="text-xl font-bold text-slate-700 mb-2">כלים - PDF</h2>
-              <p className="text-slate-600">ניהול קבצי PDF ואחסון בדטאבייס</p>
-            </div>
-            <ExtractPdfButton />
           </div>
         )}
 

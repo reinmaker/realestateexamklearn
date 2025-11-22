@@ -212,11 +212,9 @@ export async function saveUserSession(
     if (score !== undefined && score !== null && totalQuestions > 0) {
       // Use score-based percentage as primary source (more reliable)
       percentage = (score / totalQuestions) * 100;
-      console.log(`Saving session: Using score-based percentage: score=${score}, totalQuestions=${totalQuestions}, percentage=${percentage}%`);
     } else if (totalQuestions > 0) {
       // Fallback to results-based calculation
       percentage = (correctAnswers / totalQuestions) * 100;
-      console.log(`Saving session: Using results-based percentage: correctAnswers=${correctAnswers}, totalQuestions=${totalQuestions}, percentage=${percentage}%`);
     }
     
     // Log warning if there's a significant mismatch (indicates data inconsistency)
@@ -226,8 +224,6 @@ export async function saveUserSession(
         console.warn(`Percentage mismatch: results-based=${resultsBasedPercentage}%, score-based=${percentage}%. Using score-based.`);
       }
     }
-    
-    console.log(`Saving session: score=${score}, correctAnswers=${correctAnswers}, totalQuestions=${totalQuestions}, final percentage=${percentage}%`);
 
     const { error } = await supabase
       .from('user_sessions')

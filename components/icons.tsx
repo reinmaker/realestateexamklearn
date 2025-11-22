@@ -66,7 +66,7 @@ export const CheckIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-const AVATAR_URL = "https://arhoasurtfurjgfohlgt.supabase.co/storage/v1/object/sign/images/Avatar.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV85Y2ZiNDI5Zi00ZDNlLTRkNDItOTlkZS00ZGU3Y2U4OGYxNzYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJpbWFnZXMvQXZhdGFyLnBuZyIsImlhdCI6MTc2MjI0NTM3OSwiZXhwIjo0ODg0MzA5Mzc5fQ.ThB5QYSIYXegQI5BIcQVMVaD2E-47UQNrKKq0tKiqTU";
+const AVATAR_URL = "https://arhoasurtfurjgfohlgt.supabase.co/storage/v1/object/public/Materials/ukaa79hs286zty7q6n14jnzfor4t.png";
 
 export const AIAvatarIcon = ({ className }: { className?: string }) => (
     <div 
