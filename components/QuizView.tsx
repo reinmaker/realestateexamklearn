@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { QuizQuestion, QuizResult, QuizProgress, AnalysisResult, ViewType, ChatSession, ChatMessage } from '../types';
 import { SparklesIcon, FlashcardsIcon, QuizIcon, CheckIcon, CloseIcon, SpeakerIcon } from './icons';
 import { generateSpeech, generateTeacherReaction } from '../services/aiService';
@@ -70,21 +70,50 @@ const QuizView: React.FC<QuizViewProps> = ({
   
   const [userAnswers, setUserAnswers] = useState<(number | null)[]>([]);
   
-  // Preserve current question index when questions array changes
-  // Only adjust if the current index is truly out of bounds
+  // Track the last questions length to detect actual length changes (not just reference changes)
+  const lastQuestionsLengthRef = useRef<number>(0);
+  const userHasStartedRef = useRef<boolean>(false);
+  
+  // Mark that user has started once they interact with the quiz
   useEffect(() => {
+    if (currentQuestionIndex > 0 || selectedAnswer !== null || isFinished) {
+      userHasStartedRef.current = true;
+    }
+  }, [currentQuestionIndex, selectedAnswer, isFinished]);
+  
+  // Preserve current question index when questions array changes
+  // Only adjust if the current index is truly out of bounds AND we're not loading more questions
+  useEffect(() => {
+    // Never adjust if user has started - preserve their position
+    if (userHasStartedRef.current) {
+      return;
+    }
+    
+    // Don't adjust if we're still loading questions (questions are being added progressively)
+    if (isLoading || !isFullyLoaded) {
+      return; // Wait for questions to finish loading
+    }
+    
+    // Only adjust if length actually changed (not just array reference)
+    const currentLength = questions?.length || 0;
+    if (currentLength === lastQuestionsLengthRef.current) {
+      return; // Length hasn't changed, just reference update (e.g., from preFetchBookReferences)
+    }
+    
+    lastQuestionsLengthRef.current = currentLength;
+    
+    // Only adjust if index is out of bounds after loading is complete
     if (questions && questions.length > 0 && currentQuestionIndex >= questions.length) {
-      // If current index is out of bounds, adjust it to the last available question
-      // But don't change if we're just waiting for more questions to load
-      const newIndex = Math.max(0, Math.min(currentQuestionIndex, questions.length - 1));
+      const newIndex = Math.max(0, questions.length - 1);
       if (newIndex !== currentQuestionIndex) {
+        console.log(`Adjusting question index from ${currentQuestionIndex} to ${newIndex} (questions.length=${questions.length})`);
         setQuizProgress(prev => ({
           ...prev,
           currentQuestionIndex: newIndex,
         }));
       }
     }
-  }, [questions?.length, currentQuestionIndex]); // Only depend on length, not the full array
+  }, [questions?.length, currentQuestionIndex, isLoading, isFullyLoaded]); // Include loading state
   const [isGeneratingTargeted, setIsGeneratingTargeted] = useState<'flashcards' | 'quiz' | null>(null);
   const [progress, setProgress] = useState(0);
   const progressIntervalRef = useRef<number | null>(null);
@@ -97,62 +126,167 @@ const QuizView: React.FC<QuizViewProps> = ({
   const [showBookReference, setShowBookReference] = useState(false); // State for showing/hiding book reference
   const [displayBookReference, setDisplayBookReference] = useState<string | null>(null); // Converted book reference for display
   const [isLoadingBookReference, setIsLoadingBookReference] = useState(false); // State for loading book reference
+  
+  // Store stable reference to current question to prevent jumps when questions array reference changes
+  const stableCurrentQuestionRef = useRef<QuizQuestion | null>(null);
+  const stableCurrentQuestionIndexRef = useRef<number>(-1);
 
   // Convert book reference to new format when question changes
+  // Use a ref to track the last question text to avoid re-running when questions array updates
+  const lastQuestionTextRef = useRef<string>('');
+  const stableBookReferenceRef = useRef<string | null>(null);
+  const lastBookReferenceRef = useRef<string | null>(null);
+  
+  // Effect 1: Handle book reference when question index changes (using stable question)
   useEffect(() => {
-    if (questions && questions.length > 0 && currentQuestionIndex < questions.length) {
-      const currentQuestion = questions[currentQuestionIndex];
-      const questionKey = currentQuestion.question; // Use question text as cache key
-      
-      // Check module-level cache first
-      if (hasCachedBookReference(questionKey)) {
-        const cachedRef = getCachedBookReference(questionKey);
-        setDisplayBookReference(cachedRef || null);
+    // Use stable question reference to prevent jumps when array reference changes
+    const stableQuestion = stableCurrentQuestionRef.current;
+    
+    if (!stableQuestion) {
+      // If no stable question yet, clear display
+      if (!questions || questions.length === 0 || currentQuestionIndex >= questions.length) {
+        setDisplayBookReference(null);
         setIsLoadingBookReference(false);
+        stableBookReferenceRef.current = null;
+        lastBookReferenceRef.current = null;
         return;
       }
-      
-      // Reset loading state when question changes (but keep reference if cached)
-      setIsLoadingBookReference(true);
-      setShowBookReference(false);
-      
-      if (currentQuestion?.bookReference) {
-        const ref = currentQuestion.bookReference;
-        // Check if it's already new format
-        if (ref.includes('מופיע בעמ') || ref.includes('מתחילות בעמ')) {
-          setDisplayBookReference(ref);
-          setCachedBookReference(questionKey, ref); // Cache it in module-level cache
-          setIsLoadingBookReference(false);
-        } else {
-          // Convert old format to new format
-          import('../services/bookReferenceService').then(({ convertOldFormatToNew }) => {
-            const converted = convertOldFormatToNew(ref, currentQuestion.question);
-            setDisplayBookReference(converted);
-            setCachedBookReference(questionKey, converted); // Cache it in module-level cache
-            setIsLoadingBookReference(false);
-          });
-        }
+      // Wait for stable ref to be set
+      return;
+    }
+    
+    const questionText = stableQuestion.question || '';
+    
+    // Verify the question from array matches (safety check)
+    const questionFromArray = questions && questions.length > 0 && currentQuestionIndex < questions.length
+      ? questions[currentQuestionIndex]
+      : null;
+    
+    // If question text doesn't match, something is wrong - wait for stable ref to update
+    if (questionFromArray && questionFromArray.question !== questionText) {
+      console.warn('Question text mismatch detected - waiting for stable ref to update');
+      return;
+    }
+    
+    // Only run if the question text actually changed (index changed)
+    if (questionText === lastQuestionTextRef.current) {
+      // Same question - use stable book reference if available
+      if (stableBookReferenceRef.current !== null) {
+        setDisplayBookReference(stableBookReferenceRef.current);
+        setIsLoadingBookReference(false);
+      }
+      return; // Same question, don't reload book reference
+    }
+    
+    // Question changed - reset and load new reference
+    lastQuestionTextRef.current = questionText;
+    const questionKey = questionText; // Use question text as cache key
+    
+    // Check module-level cache first
+    if (hasCachedBookReference(questionKey)) {
+      const cachedRef = getCachedBookReference(questionKey);
+      setDisplayBookReference(cachedRef || null);
+      stableBookReferenceRef.current = cachedRef || null;
+      lastBookReferenceRef.current = cachedRef || null;
+      setIsLoadingBookReference(false);
+      return;
+    }
+    
+    // Reset loading state when question changes
+    setIsLoadingBookReference(true);
+    setShowBookReference(false);
+    
+    // Check if book reference exists - prefer from array if updated (from preFetchBookReferences)
+    const bookReference = questionFromArray?.bookReference || stableQuestion.bookReference;
+    
+    if (bookReference) {
+      // Check if it's already new format
+      if (bookReference.includes('מופיע בעמ') || bookReference.includes('מתחילות בעמ')) {
+        setDisplayBookReference(bookReference);
+        stableBookReferenceRef.current = bookReference;
+        lastBookReferenceRef.current = bookReference;
+        setCachedBookReference(questionKey, bookReference);
+        setIsLoadingBookReference(false);
       } else {
-        // Try to generate book reference if missing
-        import('../services/bookReferenceService').then(({ getBookReferenceByAI }) => {
-          getBookReferenceByAI(currentQuestion.question, undefined, documentContent)
-            .then((generatedRef) => {
-              setDisplayBookReference(generatedRef);
-              setCachedBookReference(questionKey, generatedRef); // Cache it in module-level cache
-              setIsLoadingBookReference(false);
-            })
-            .catch((error) => {
-              console.warn('QuizView: Failed to generate bookReference:', error);
-              setDisplayBookReference(null);
-              setIsLoadingBookReference(false);
-            });
+        // Convert old format to new format
+        import('../services/bookReferenceService').then(({ convertOldFormatToNew }) => {
+          const converted = convertOldFormatToNew(bookReference, stableQuestion.question);
+          setDisplayBookReference(converted);
+          stableBookReferenceRef.current = converted;
+          lastBookReferenceRef.current = converted;
+          setCachedBookReference(questionKey, converted);
+          setIsLoadingBookReference(false);
         });
       }
     } else {
-      setDisplayBookReference(null);
-      setIsLoadingBookReference(false);
+      // Try to generate book reference if missing
+      import('../services/bookReferenceService').then(({ getBookReferenceByAI }) => {
+        getBookReferenceByAI(stableQuestion.question, undefined, documentContent)
+          .then((generatedRef) => {
+            setDisplayBookReference(generatedRef);
+            stableBookReferenceRef.current = generatedRef;
+            lastBookReferenceRef.current = generatedRef;
+            setCachedBookReference(questionKey, generatedRef);
+            setIsLoadingBookReference(false);
+          })
+          .catch((error) => {
+            console.warn('QuizView: Failed to generate bookReference:', error);
+            setDisplayBookReference(null);
+            stableBookReferenceRef.current = null;
+            lastBookReferenceRef.current = null;
+            setIsLoadingBookReference(false);
+          });
+      });
     }
-  }, [questions, currentQuestionIndex, documentContent]);
+  }, [currentQuestionIndex]); // Only depend on index, not questions array
+  
+  // Effect 2: Update book reference when it becomes available in questions array (without resetting state)
+  useEffect(() => {
+    // Only update if we're on the same question (check by index AND question text)
+    const stableQuestion = stableCurrentQuestionRef.current;
+    if (!stableQuestion || stableCurrentQuestionIndexRef.current !== currentQuestionIndex) {
+      return; // Different question, ignore
+    }
+    
+    const stableQuestionText = stableQuestion.question || '';
+    
+    // Check if book reference was added/updated in questions array
+    // CRITICAL: Verify the question text matches to ensure we're getting the right book reference
+    const questionFromArray = questions && questions.length > 0 && currentQuestionIndex < questions.length
+      ? questions[currentQuestionIndex]
+      : null;
+    
+    // Verify this is the same question by comparing question text
+    if (!questionFromArray || questionFromArray.question !== stableQuestionText) {
+      return; // Different question at this index, ignore
+    }
+    
+    const bookRefFromArray = questionFromArray.bookReference;
+    
+    // If we have a new book reference that's different from what we have, update it smoothly
+    if (bookRefFromArray && bookRefFromArray !== lastBookReferenceRef.current) {
+      const questionKey = stableQuestionText;
+      
+      // Update stable ref and display
+      if (bookRefFromArray.includes('מופיע בעמ') || bookRefFromArray.includes('מתחילות בעמ')) {
+        setDisplayBookReference(bookRefFromArray);
+        stableBookReferenceRef.current = bookRefFromArray;
+        lastBookReferenceRef.current = bookRefFromArray;
+        setCachedBookReference(questionKey, bookRefFromArray);
+        setIsLoadingBookReference(false);
+      } else {
+        // Convert old format if needed
+        import('../services/bookReferenceService').then(({ convertOldFormatToNew }) => {
+          const converted = convertOldFormatToNew(bookRefFromArray, stableQuestionText);
+          setDisplayBookReference(converted);
+          stableBookReferenceRef.current = converted;
+          lastBookReferenceRef.current = converted;
+          setCachedBookReference(questionKey, converted);
+          setIsLoadingBookReference(false);
+        });
+      }
+    }
+  }, [questions, currentQuestionIndex]); // Watch for book reference updates in array
 
   useEffect(() => {
     // If loading, start animated progress from 0% to 100% over 60 seconds
@@ -649,9 +783,39 @@ const QuizView: React.FC<QuizViewProps> = ({
     );
   }
   
-  const currentQuestion = questions[currentQuestionIndex];
+  // Update stable ref only when index changes, not when questions array reference changes
+  useEffect(() => {
+    if (questions && questions.length > 0 && currentQuestionIndex >= 0 && currentQuestionIndex < questions.length) {
+      // Only update if index actually changed
+      if (stableCurrentQuestionIndexRef.current !== currentQuestionIndex) {
+        const newQuestion = questions[currentQuestionIndex];
+        stableCurrentQuestionRef.current = newQuestion;
+        stableCurrentQuestionIndexRef.current = currentQuestionIndex;
+        // Reset book reference refs when question changes
+        stableBookReferenceRef.current = null;
+        lastBookReferenceRef.current = null;
+      } else {
+        // Index hasn't changed, but questions array might have been updated (e.g., book references added)
+        // Update the stable ref with the latest question data, but only if it's the same question
+        const currentQuestionFromArray = questions[currentQuestionIndex];
+        const stableQuestion = stableCurrentQuestionRef.current;
+        if (currentQuestionFromArray && stableQuestion && currentQuestionFromArray.question === stableQuestion.question) {
+          // Same question - update stable ref with latest data (including book reference if added)
+          stableCurrentQuestionRef.current = currentQuestionFromArray;
+        }
+      }
+    }
+  }, [currentQuestionIndex, questions]); // Depend on both to sync book references when they're added
   
-  if (!currentQuestion) {
+  // Get current question - use stable ref if available, otherwise get from array
+  const currentQuestion = questions && questions.length > 0 && currentQuestionIndex >= 0 && currentQuestionIndex < questions.length
+    ? questions[currentQuestionIndex]
+    : null;
+  
+  // Use stable ref for rendering to prevent jumps when array reference changes
+  const displayQuestion = stableCurrentQuestionRef.current || currentQuestion;
+  
+  if (!displayQuestion) {
      if (!isFullyLoaded && !isLoading) {
         return (
             <div className="flex-grow flex items-center justify-center p-4 md:p-8 text-center">
@@ -734,9 +898,9 @@ const QuizView: React.FC<QuizViewProps> = ({
         </div>
         <div key={currentQuestionIndex} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm animate-slide-in-right">
           <div className="flex items-center justify-between gap-4 mb-6">
-            <p className="text-lg font-semibold text-slate-900 flex-1">{currentQuestion.question}</p>
+            <p className="text-lg font-semibold text-slate-900 flex-1">{displayQuestion.question}</p>
             <button
-                onClick={() => handlePlayAudio(currentQuestion.question, 'question')}
+                onClick={() => handlePlayAudio(displayQuestion.question, 'question')}
                 disabled={!!isAudioLoading}
                 className="p-2 rounded-full bg-slate-700 border-2 border-slate-600 text-white hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
                 aria-label="הקרא שאלה"
@@ -749,7 +913,7 @@ const QuizView: React.FC<QuizViewProps> = ({
             </button>
           </div>
           <div className="grid grid-cols-1 gap-4">
-            {currentQuestion.options.map((option, index) => (
+            {displayQuestion.options.map((option, index) => (
               <button
                 key={index}
                 onClick={() => handleAnswerSelect(index)}
@@ -770,7 +934,7 @@ const QuizView: React.FC<QuizViewProps> = ({
                     <div className="flex items-center justify-between gap-4 mb-2">
                         <h3 className="font-bold text-lg text-slate-800">הסבר קצר</h3>
                         <button
-                            onClick={() => handlePlayAudio(currentQuestion.explanation, 'explanation')}
+                            onClick={() => handlePlayAudio(displayQuestion.explanation, 'explanation')}
                             disabled={!!isAudioLoading}
                             className="p-2 rounded-full bg-slate-700 border-2 border-slate-600 text-white hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait shrink-0"
                             aria-label="הקרא הסבר"
@@ -782,7 +946,7 @@ const QuizView: React.FC<QuizViewProps> = ({
                             )}
                         </button>
                     </div>
-                    <p className="text-slate-600">{currentQuestion.explanation}</p>
+                    <p className="text-slate-600">{displayQuestion.explanation}</p>
                 </div>
                 <button 
                     onClick={handleFurtherExplanation}

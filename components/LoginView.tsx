@@ -258,7 +258,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                     muted
                     playsInline
                 >
-                    <source src="https://mp.astria.ai/j8311up7tj9mxjbuo2qz9xxyut9a" type="video/mp4" />
+                    <source src="https://arhoasurtfurjgfohlgt.supabase.co/storage/v1/object/public/Materials/33071294-0.mp4" type="video/mp4" />
                     Your browser does not support the video tag.
                 </video>
             </div>
