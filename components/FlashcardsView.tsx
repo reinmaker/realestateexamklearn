@@ -197,11 +197,6 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
             lastBookReferenceRef.current = generatedRef;
             setCachedBookReference(questionKey, generatedRef);
             setIsLoadingBookReference(false);
-            console.log('FlashcardsView: Received book reference from AI:', {
-              length: generatedRef.length,
-              preview: generatedRef.substring(0, 100),
-              full: generatedRef
-            });
           })
           .catch((error) => {
             console.warn('FlashcardsView: Failed to generate bookReference:', error);
