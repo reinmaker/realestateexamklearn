@@ -2025,59 +2025,9 @@ export async function getBookReferenceByAI(
   topic?: string,
   documentContent?: string
 ): Promise<string> {
-  // First try keyword-based matching for quick validation
-  const keywordReference = getBookReferenceByKeywords(questionText);
-  
-  // Try OpenAI Assistant first, then fall back to Gemini if assistant not found
+  // Use ONLY OpenAI - no keyword fallbacks
   try {
     const aiReference = await getBookReferenceOpenAI(questionText, topic, documentContent);
-      
-    // Validate AI result against keyword match if available
-    if (keywordReference) {
-      // Extract chapter numbers from both
-      const aiChapterMatch = aiReference.match(/פרק (\d+)/);
-      const keywordChapterMatch = keywordReference.match(/פרק (\d+)/);
-      
-      // Check if AI returned new format (includes page number or "מופיע בעמ")
-      const aiIsNewFormat = aiReference.includes('מופיע בעמ') || 
-                           aiReference.includes('מתחילות בעמ') ||
-                           aiReference.includes('עמ\'') ||
-                           aiReference.includes('עמוד');
-      const keywordIsNewFormat = keywordReference.includes('מופיע בעמ') || 
-                                 keywordReference.includes('מתחילות בעמ') ||
-                                 keywordReference.includes('עמ\'') ||
-                                 keywordReference.includes('עמוד');
-      
-      // ALWAYS prefer AI response over keyword - OpenAI is more accurate
-      // Only use keyword as fallback if AI response is invalid
-      if (aiIsNewFormat) {
-        // AI returned new format, validate and use it
-        const result = validateReference(aiReference, questionText);
-        return result;
-      } else if (keywordIsNewFormat && !aiReference.includes('חוק') && !aiReference.includes('תקנות') && !aiReference.includes('פרק')) {
-        // Only use keyword if AI response is completely invalid (no law/chapter references)
-        const result = validateReference(keywordReference, questionText);
-        return result;
-      } else {
-        // Both are old format or AI doesn't have new format markers
-        // ALWAYS prefer AI if it has any valid content - return OpenAI response as-is without validation
-        if (aiReference && (aiReference.includes('חוק') || aiReference.includes('תקנות') || aiReference.includes('פרק') || aiReference.includes('סעיף'))) {
-          // Return OpenAI response as-is without validation to preserve the exact response
-          return aiReference;
-        }
-        // Only fallback to keyword if AI is completely invalid
-        if (keywordIsNewFormat) {
-          const result = validateReference(keywordReference, questionText);
-          return result;
-        }
-        if (keywordReference) {
-          const result = convertOldFormatToNew(keywordReference, questionText);
-          return result;
-        }
-      }
-    }
-    
-    // No keywordReference - return OpenAI response as-is without validation to preserve exact response
     
     // Check if response indicates "not found" - return it anyway
     const notFoundPatterns = [
@@ -2112,22 +2062,8 @@ export async function getBookReferenceByAI(
     const errorMessage = (error as Error).message;
     console.warn('OpenAI book reference failed:', errorMessage);
     
-    // Handle specific error cases
-    if (errorMessage === 'REFERENCE_NOT_FOUND' || errorMessage === 'INVALID_REFERENCE_FORMAT') {
-      // Fall through to keyword fallback
-    }
-    
-    // No Gemini fallback - only use OpenAI or keyword-based fallback
-    // Final fallback to keyword-based or default
-    if (keywordReference) {
-      // Convert to new format if it's old format
-      if (keywordReference.includes('מופיע בעמ') || keywordReference.includes('מתחילות בעמ')) {
-        return keywordReference;
-      } else {
-        return convertOldFormatToNew(keywordReference, questionText);
-      }
-    }
-    return 'חלק 1';
+    // Re-throw the error - no fallbacks, use only OpenAI
+    throw error;
   }
 }
 
