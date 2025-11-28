@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Flashcard, FlashcardsProgress } from '../types';
 import { SparklesIcon, LightbulbIcon, SpeakerIcon } from './icons';
-import { generateHint, generateSpeech } from '../services/aiService';
+import { generateHint, generateSpeech, checkFlashcardAnswer, AnswerAccuracyResult } from '../services/aiService';
 import { getCachedBookReference, setCachedBookReference, hasCachedBookReference } from '../services/bookReferenceCache';
 
 // Standalone audio decoding functions
@@ -62,6 +62,9 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
   const [isLoadingBookReference, setIsLoadingBookReference] = useState(false); // State for loading book reference
 
   const [isAudioLoading, setIsAudioLoading] = useState<'question' | 'answer' | null>(null);
+  const [answerAccuracy, setAnswerAccuracy] = useState<AnswerAccuracyResult | null>(null);
+  const [isCheckingAnswer, setIsCheckingAnswer] = useState(false);
+  const [showAccuracyPrompt, setShowAccuracyPrompt] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   
   // Refs for stable book reference tracking (matching QuizView pattern)
@@ -384,7 +387,7 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
           style={{ transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}
         >
           {/* Front of card */}
-          <div className="w-full rounded-2xl bg-amber-50 text-slate-900 flex flex-col justify-center p-6 sm:p-8 text-center border border-amber-200 shadow-md" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
+          <div className="w-full rounded-2xl bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 text-slate-900 flex flex-col justify-center p-6 sm:p-8 text-center border-2 border-blue-200/50 shadow-lg" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
             <div className="flex items-center justify-center gap-2 mb-4 flex-shrink-0">
                 <p className="text-xl sm:text-2xl font-bold">{currentCard.question}</p>
                 <button
@@ -435,16 +438,100 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                     )}
                 </button>
                 {hint && (
-                    <p className="mt-3 text-sm text-slate-600 bg-amber-100 p-3 rounded-md animate-fade-in">{hint}</p>
+                    <p className="mt-3 text-sm text-slate-600 bg-blue-100 p-3 rounded-md animate-fade-in">{hint}</p>
                 )}
             </div>
-            <button onClick={() => setIsFlipped(true)} className="w-full mt-4 py-2 bg-sky-600 text-white font-semibold rounded-2xl hover:bg-sky-700 transition-colors">
-                הצג תשובה
+            <button 
+              onClick={async () => {
+                const userAnswer = userAnswers[currentIndex] || '';
+                if (!userAnswer.trim()) {
+                  // If no answer provided, just show the answer
+                  setIsFlipped(true);
+                  return;
+                }
+                
+                // Check answer with AI
+                setIsCheckingAnswer(true);
+                setAppError(null);
+                try {
+                  const accuracy = await checkFlashcardAnswer(
+                    userAnswer,
+                    currentCard.answer,
+                    currentCard.question,
+                    documentContent
+                  );
+                  setAnswerAccuracy(accuracy);
+                  setShowAccuracyPrompt(true);
+                } catch (error) {
+                  console.error('Error checking answer:', error);
+                  if (error instanceof Error) setAppError(error.message);
+                  else setAppError("נכשל בבדיקת התשובה.");
+                  // On error, just show the answer
+                  setIsFlipped(true);
+                } finally {
+                  setIsCheckingAnswer(false);
+                }
+              }}
+              disabled={isCheckingAnswer}
+              className="w-full mt-4 py-2 bg-sky-600 text-white font-semibold rounded-2xl hover:bg-sky-700 transition-colors disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2"
+            >
+              {isCheckingAnswer ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>בודק תשובה...</span>
+                </>
+              ) : (
+                'בדוק תשובה'
+              )}
             </button>
+            {showAccuracyPrompt && answerAccuracy && (
+              <div className="mt-4 p-4 bg-white border-2 border-sky-300 rounded-xl shadow-lg animate-fade-in">
+                <div className="text-center mb-4">
+                  <div className="text-3xl font-bold mb-2" style={{
+                    color: answerAccuracy.accuracyScore >= 70 ? '#10b981' : answerAccuracy.accuracyScore >= 40 ? '#f59e0b' : '#ef4444'
+                  }}>
+                    {answerAccuracy.accuracyScore}%
+                  </div>
+                  <p className="text-sm text-slate-600 mb-2">{answerAccuracy.feedback}</p>
+                  <p className="text-xs text-slate-500">
+                    {answerAccuracy.isCorrect 
+                      ? 'תשובה טובה! האם תרצה לראות את התשובה המדויקת?' 
+                      : 'התשובה שלך לא מדויקת מספיק. האם תרצה לראות את התשובה הנכונה או לנסות שוב?'}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setIsFlipped(true);
+                      setShowAccuracyPrompt(false);
+                    }}
+                    className="flex-1 py-2 bg-sky-600 text-white font-semibold rounded-xl hover:bg-sky-700 transition-colors"
+                  >
+                    הצג תשובה
+                  </button>
+                  {!answerAccuracy.isCorrect && (
+                    <button
+                      onClick={() => {
+                        setShowAccuracyPrompt(false);
+                        setAnswerAccuracy(null);
+                        // Focus back on textarea
+                        const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+                        if (textarea) {
+                          setTimeout(() => textarea.focus(), 100);
+                        }
+                      }}
+                      className="flex-1 py-2 bg-amber-100 text-amber-800 font-semibold rounded-xl hover:bg-amber-200 transition-colors"
+                    >
+                      נסה שוב
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Back of card */}
-          <div className="absolute w-full h-full top-0 left-0 rounded-2xl bg-sky-50 text-slate-900 flex flex-col justify-center items-center p-6 sm:p-8 text-center border border-sky-200 shadow-md" style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
+          <div className="absolute w-full h-full top-0 left-0 rounded-2xl bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 text-slate-900 flex flex-col justify-center items-center p-6 sm:p-8 text-center border-2 border-emerald-200/50 shadow-lg" style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
              <div className="flex items-center justify-center gap-2 mb-4">
                 <p className="text-lg font-semibold text-slate-500">{currentCard.question}</p>
             </div>
