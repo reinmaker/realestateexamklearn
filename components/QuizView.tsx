@@ -74,6 +74,20 @@ const QuizView: React.FC<QuizViewProps> = ({
   const lastQuestionsLengthRef = useRef<number>(0);
   const userHasStartedRef = useRef<boolean>(false);
   
+  // Reset internal state when quiz type changes (switching between regular and reinforcement quiz)
+  useEffect(() => {
+    // Reset internal state when quiz type changes
+    setUserAnswers([]);
+    lastQuestionsLengthRef.current = 0;
+    userHasStartedRef.current = false;
+    // Reset stable question refs to ensure correct question is shown for new quiz type
+    stableCurrentQuestionRef.current = null;
+    stableCurrentQuestionIndexRef.current = -1;
+    lastQuestionTextRef.current = '';
+    stableBookReferenceRef.current = null;
+    lastBookReferenceRef.current = null;
+  }, [quizType]);
+  
   // Mark that user has started once they interact with the quiz
   useEffect(() => {
     if (currentQuestionIndex > 0 || selectedAnswer !== null || isFinished) {
@@ -117,6 +131,58 @@ const QuizView: React.FC<QuizViewProps> = ({
   const [progress, setProgress] = useState(0);
   const progressIntervalRef = useRef<number | null>(null);
   const progressStartTimeRef = useRef<number | null>(null);
+  
+  // Rotating funny and informative messages while loading
+  const loadingMessages = useMemo(() => [
+    "הבינה המלאכותית מנתחת את חומר הלימוד כדי ליצור סט ייחודי של שאלות עבורך. תהליך זה עשוי להימשך מספר רגעים.",
+    "📚 קורא את כל החוקים והתקנות... (כן, גם את הקטנים!)",
+    "🧠 מחפש את הנושאים הכי חשובים במבחן הרישוי...",
+    "💡 יוצר שאלות שיעזרו לך באמת להבין את החומר...",
+    "📖 בודק את כל ההפניות לספרים - כל שאלה תהיה מדויקת!",
+    "⚖️ מנתח פסקי דין רלוונטיים... (הבינה המלאכותית קוראת הרבה!)",
+    "🎯 בוחר שאלות מגוונות מכל חלקי הספר - לא רק מההתחלה!",
+    "🔍 מחפש את הנושאים הכי נפוצים במבחנים...",
+    "✨ יוצר שאלות ייחודיות רק עבורך - לא תמצא אותן בשום מקום אחר!",
+    "📝 בודק שהשאלות ברורות ומובנות...",
+    "🎓 מתכונן להכין לך את הבוחן הכי טוב שיהיה!",
+    "💪 הבינה המלאכותית עובדת קשה כדי שתוכל לעבור את המבחן!",
+    "📊 מנתח אלפי שאלות קודמות כדי להבין מה באמת חשוב...",
+    "🔎 מחפש את כל הפרטים הקטנים שחשובים במבחן...",
+    "🌟 טוען שאלות נוספות ברקע... תוכל להתחיל כבר עכשיו!",
+    "⚡ השאלות הראשונות מוכנות! שאר השאלות נטענות ברקע...",
+  ], []);
+  
+  // Persist progress state across component remounts (e.g., when switching tabs)
+  // Use a unique key based on quiz type to avoid conflicts
+  const progressStorageKey = useMemo(() => `quiz_progress_${quizType || 'regular'}`, [quizType]);
+  
+  // Load persisted progress on mount or when loading state changes
+  useEffect(() => {
+    // Only restore if we're loading and don't have questions yet
+    if (isLoading && (!questions || questions.length === 0)) {
+      try {
+        const savedStartTime = sessionStorage.getItem(`${progressStorageKey}_startTime`);
+        if (savedStartTime && !progressStartTimeRef.current) {
+          const startTime = parseInt(savedStartTime, 10);
+          const elapsed = Date.now() - startTime;
+          const duration = 90000; // 90 seconds (1:30)
+          const calculatedProgress = Math.min(Math.round((elapsed / duration) * 100), 100);
+          
+          // Only restore if loading is still in progress and progress is valid
+          if (calculatedProgress < 100 && elapsed < duration && elapsed >= 0) {
+            setProgress(calculatedProgress);
+            progressStartTimeRef.current = startTime;
+          } else {
+            // Clear stale progress
+            sessionStorage.removeItem(progressStorageKey);
+            sessionStorage.removeItem(`${progressStorageKey}_startTime`);
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to restore progress from sessionStorage:', error);
+      }
+    }
+  }, [isLoading, questions?.length, progressStorageKey]); // Restore when loading starts
   const [isAudioLoading, setIsAudioLoading] = useState<'question' | 'explanation' | null>(null);
   const [teacherMessage, setTeacherMessage] = useState<string | null>(null);
   const [showTeacherMessage, setShowTeacherMessage] = useState(false);
@@ -237,24 +303,93 @@ const QuizView: React.FC<QuizViewProps> = ({
   }, [currentQuestionIndex, questions]); // Fetch book reference when user reaches each question
 
   useEffect(() => {
-    // If loading, start animated progress from 0% to 100% over 60 seconds
+    // If loading, start animated progress from 0% to 100% over 90 seconds (1:30)
     if (isLoading && (!questions || questions.length === 0)) {
-      // Reset and start animation
-      setProgress(0);
-      progressStartTimeRef.current = Date.now();
+      // Only reset and start animation if not already in progress
+      // Check both ref and sessionStorage to prevent reset when switching tabs
+      if (!progressStartTimeRef.current) {
+        // Check sessionStorage first
+        try {
+          const savedStartTime = sessionStorage.getItem(`${progressStorageKey}_startTime`);
+          if (savedStartTime) {
+            const startTime = parseInt(savedStartTime, 10);
+            const elapsed = Date.now() - startTime;
+            const duration = 90000; // 90 seconds (1:30)
+            
+            // Only use saved time if it's still valid (less than duration)
+            if (elapsed < duration && elapsed >= 0) {
+              progressStartTimeRef.current = startTime;
+              const currentProgress = Math.min(Math.round((elapsed / duration) * 100), 100);
+              setProgress(currentProgress);
+            } else {
+              // Start fresh if saved time is stale
+              progressStartTimeRef.current = Date.now();
+              sessionStorage.setItem(`${progressStorageKey}_startTime`, progressStartTimeRef.current.toString());
+              setProgress(0);
+            }
+          } else {
+            // Start fresh
+            progressStartTimeRef.current = Date.now();
+            sessionStorage.setItem(`${progressStorageKey}_startTime`, progressStartTimeRef.current.toString());
+            setProgress(0);
+          }
+        } catch (error) {
+          // Fallback if sessionStorage fails
+          progressStartTimeRef.current = Date.now();
+          setProgress(0);
+        }
+      } else {
+        // Ensure start time is saved to sessionStorage
+        try {
+          sessionStorage.setItem(`${progressStorageKey}_startTime`, progressStartTimeRef.current.toString());
+        } catch (error) {
+          // Ignore sessionStorage errors
+        }
+      }
       
-      // Clear any existing interval
+      // Clear any existing interval before creating a new one
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
       }
+      
+      // Handle page visibility to prevent progress reset when switching tabs
+      const handleVisibilityChange = () => {
+        if (!document.hidden && progressStartTimeRef.current) {
+          // Tab became active - recalculate progress based on actual elapsed time
+          // This ensures progress continues from where it should be, not reset
+          const elapsed = Date.now() - progressStartTimeRef.current;
+          const duration = 90000; // 90 seconds (1:30)
+          const currentProgress = Math.min((elapsed / duration) * 100, 100);
+          
+          // Update progress immediately when tab becomes visible
+          setProgress(Math.round(currentProgress));
+          
+          // Persist to sessionStorage
+          try {
+            sessionStorage.setItem(progressStorageKey, Math.round(currentProgress).toString());
+          } catch (error) {
+            // Ignore sessionStorage errors
+          }
+        }
+      };
+      
+      document.addEventListener('visibilitychange', handleVisibilityChange);
       
       // Update progress every 100ms for smooth animation
       progressIntervalRef.current = window.setInterval(() => {
         if (progressStartTimeRef.current) {
           const elapsed = Date.now() - progressStartTimeRef.current;
-          const duration = 60000; // 60 seconds (1 minute)
+          const duration = 90000; // 90 seconds (1:30)
           const newProgress = Math.min(Math.round((elapsed / duration) * 100), 100);
           setProgress(newProgress);
+          
+          // Persist progress to sessionStorage
+          try {
+            sessionStorage.setItem(progressStorageKey, newProgress.toString());
+          } catch (error) {
+            // Ignore sessionStorage errors
+          }
           
           // Stop animation when reaching 100%
           if (newProgress >= 100) {
@@ -262,11 +397,22 @@ const QuizView: React.FC<QuizViewProps> = ({
               clearInterval(progressIntervalRef.current);
               progressIntervalRef.current = null;
             }
+            progressStartTimeRef.current = null;
+            // Clear persisted progress
+            try {
+              sessionStorage.removeItem(progressStorageKey);
+              sessionStorage.removeItem(`${progressStorageKey}_startTime`);
+            } catch (error) {
+              // Ignore sessionStorage errors
+            }
           }
         }
       }, 100);
       
       return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        // Don't clear progressStartTimeRef here - keep it so progress doesn't reset
+        // Only clear the interval
         if (progressIntervalRef.current) {
           clearInterval(progressIntervalRef.current);
           progressIntervalRef.current = null;
@@ -278,6 +424,16 @@ const QuizView: React.FC<QuizViewProps> = ({
         clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = null;
       }
+      // Reset start time only when loading completes
+      progressStartTimeRef.current = null;
+      
+      // Clear persisted progress when loading completes
+      try {
+        sessionStorage.removeItem(progressStorageKey);
+        sessionStorage.removeItem(`${progressStorageKey}_startTime`);
+      } catch (error) {
+        // Ignore sessionStorage errors
+      }
       
       // If questions are available, use actual progress
       if (questions && questions.length > 0) {
@@ -287,27 +443,92 @@ const QuizView: React.FC<QuizViewProps> = ({
         setProgress(0);
       }
     }
-  }, [questions?.length, totalQuestions, isLoading]); // Use questions.length instead of questions to detect changes
+  }, [questions?.length, totalQuestions, isLoading, progressStorageKey]); // Include progressStorageKey in dependencies
 
   // Use ref to prevent excessive calls
   const hasRegeneratedRef = useRef(false);
+  // Track if regeneration was initiated to prevent duplicate calls
+  const regenerationInProgressRef = useRef(false);
+  // Persist regeneration state across tab switches
+  const regenerationStorageKey = useMemo(() => `quiz_regenerated_${quizType || 'regular'}`, [quizType]);
+  
+  // Load persisted regeneration state on mount
+  useEffect(() => {
+    try {
+      const hasRegenerated = sessionStorage.getItem(regenerationStorageKey);
+      if (hasRegenerated === 'true') {
+        hasRegeneratedRef.current = true;
+      }
+    } catch (error) {
+      // Ignore sessionStorage errors
+    }
+  }, [regenerationStorageKey]);
   
   useEffect(() => {
-    // Only regenerate if no questions AND user hasn't started answering
-    // Don't regenerate if user is on a question (currentQuestionIndex > 0 or has selected answer)
-    // CRITICAL: Don't regenerate if a targeted quiz is being generated or was attempted
-    // This prevents regenerateQuiz() from overriding targeted quiz generation
+    // Only regenerate if:
+    // 1. Quiz is finished (user completed it) - allow regeneration for new quiz
+    // 2. No questions exist AND user hasn't started - initial load
+    // Don't regenerate if quiz is in progress (user has questions and hasn't finished)
     const userHasStarted = currentQuestionIndex > 0 || selectedAnswer !== null;
-    if (!questions && !isLoading && !userHasStarted && !hasRegeneratedRef.current && !isTargetedQuizGenerating) {
+    const quizIsFinished = isFinished;
+    
+    // CRITICAL: If questions exist and quiz is not finished, NEVER regenerate
+    // This preserves the quiz state when navigating away and back
+    if (questions && questions.length > 0 && !quizIsFinished) {
+      return; // Don't regenerate - preserve existing quiz
+    }
+    
+    // Check sessionStorage to prevent regeneration on tab switch
+    let hasRegeneratedStored = false;
+    try {
+      hasRegeneratedStored = sessionStorage.getItem(regenerationStorageKey) === 'true';
+    } catch (error) {
+      // Ignore sessionStorage errors
+    }
+    
+    // Only regenerate if:
+    // - Quiz is finished (completed), OR
+    // - No questions AND user hasn't started AND hasn't regenerated yet
+    const shouldRegenerate = (quizIsFinished || (!questions && !userHasStarted)) && 
+                             !isLoading && 
+                             !hasRegeneratedRef.current && 
+                             !hasRegeneratedStored &&
+                             !isTargetedQuizGenerating &&
+                             !regenerationInProgressRef.current;
+    
+    if (shouldRegenerate) {
         hasRegeneratedRef.current = true;
+        regenerationInProgressRef.current = true;
+        
+        // Persist regeneration state
+        try {
+          sessionStorage.setItem(regenerationStorageKey, 'true');
+        } catch (error) {
+          // Ignore sessionStorage errors
+        }
+        
         regenerateQuiz().finally(() => {
-          // Reset after a delay to allow regeneration if needed later
-          setTimeout(() => {
-            hasRegeneratedRef.current = false;
-          }, 2000);
+          regenerationInProgressRef.current = false;
+          // Keep regeneration state persisted - don't reset immediately
+          // Only reset when quiz finishes (for next regeneration)
         });
     }
-  }, [questions, isLoading, isTargetedQuizGenerating, regenerateQuiz, currentQuestionIndex, selectedAnswer]);
+  }, [questions, isLoading, isTargetedQuizGenerating, regenerateQuiz, currentQuestionIndex, selectedAnswer, regenerationStorageKey, isFinished]);
+  
+  // Reset regeneration flag only when quiz finishes (allows regeneration for next quiz)
+  useEffect(() => {
+    if (isFinished) {
+      // Quiz is finished - reset flags so user can start a new quiz
+      hasRegeneratedRef.current = false;
+      regenerationInProgressRef.current = false;
+      // Clear persisted regeneration state so new quiz can be generated
+      try {
+        sessionStorage.removeItem(regenerationStorageKey);
+      } catch (error) {
+        // Ignore sessionStorage errors
+      }
+    }
+  }, [isFinished, regenerationStorageKey]);
 
   useEffect(() => {
     if (questions) {
@@ -331,26 +552,35 @@ const QuizView: React.FC<QuizViewProps> = ({
   // MUST be before any early returns to follow Rules of Hooks
   useEffect(() => {
     if (questions && questions.length > 0 && currentQuestionIndex >= 0 && currentQuestionIndex < questions.length) {
-      // Only update if index actually changed
-      if (stableCurrentQuestionIndexRef.current !== currentQuestionIndex) {
-        const newQuestion = questions[currentQuestionIndex];
-        stableCurrentQuestionRef.current = newQuestion;
+      // Force update when quizType changes (switching between quiz types)
+      // Check if the current question is different from what's stored
+      const currentQuestionFromArray = questions[currentQuestionIndex];
+      const isQuestionDifferent = !stableCurrentQuestionRef.current || 
+                                   stableCurrentQuestionIndexRef.current !== currentQuestionIndex ||
+                                   (stableCurrentQuestionRef.current && 
+                                    currentQuestionFromArray.question !== stableCurrentQuestionRef.current.question);
+      
+      if (isQuestionDifferent) {
+        // Update to new question
+        stableCurrentQuestionRef.current = currentQuestionFromArray;
         stableCurrentQuestionIndexRef.current = currentQuestionIndex;
         // Reset book reference refs when question changes
         stableBookReferenceRef.current = null;
         lastBookReferenceRef.current = null;
+        lastQuestionTextRef.current = ''; // Reset to trigger book reference fetch
       } else {
-        // Index hasn't changed, but questions array might have been updated (e.g., book references added)
-        // Update the stable ref with the latest question data, but only if it's the same question
-        const currentQuestionFromArray = questions[currentQuestionIndex];
-        if (currentQuestionFromArray && stableCurrentQuestionRef.current && 
-            currentQuestionFromArray.question === stableCurrentQuestionRef.current.question) {
-          // Same question - update stable ref with latest data (including book reference if added)
+        // Index and question text are the same, but questions array might have been updated (e.g., book references added)
+        // Update the stable ref with the latest question data
+        if (currentQuestionFromArray) {
           stableCurrentQuestionRef.current = currentQuestionFromArray;
         }
       }
+    } else {
+      // No valid question - clear refs
+      stableCurrentQuestionRef.current = null;
+      stableCurrentQuestionIndexRef.current = -1;
     }
-  }, [currentQuestionIndex, questions]); // Depend on both to sync book references when they're added
+  }, [currentQuestionIndex, questions, quizType]); // Include quizType to force update when switching quiz types
 
 
   const handleAnswerSelect = async (index: number) => {
@@ -569,15 +799,44 @@ const QuizView: React.FC<QuizViewProps> = ({
     return 'bg-slate-50 border-slate-200 text-slate-500';
   };
 
-  if (!questions || questions.length === 0) {
+  // Show loading screen only if we have no questions at all
+  // For regular quiz, don't show loading screen - questions load quickly from DB
+  // For reinforcement quiz, show loading screen since it takes ~1:30 to generate
+  if ((!questions || questions.length === 0) && quizType === 'reinforcement') {
       const displayProgress = Math.min(Math.round(progress), 100);
       // Ensure minimum width so the bar is visible even at 0%
       const barWidth = Math.max(displayProgress, isLoading ? 1 : 0);
+      
+      // Rotate messages based on progress to keep it interesting
+      // Change message every ~6-7% progress
+      const messageIndex = Math.min(
+        Math.floor((displayProgress / 7) % loadingMessages.length),
+        loadingMessages.length - 1
+      );
+      const currentMessage = loadingMessages[messageIndex];
+      
+      // Suggestions for what user can do while waiting
+      const suggestions = [
+        "☕ לך להכין קפה - זה ייקח קצת זמן",
+        "📚 תוכל לתרגל בוחן אימון רגיל בינתיים",
+        "🎴 או לעבור על כרטיסיות הזיכרון",
+        "🤔 או פשוט לחשוב על משמעות הקיום האנושי...",
+        "💭 או לחלום על הבית הבא שתמכור",
+        "🧘 או לעשות מדיטציה קצרה",
+        "📖 או לקרוא משהו מעניין",
+        "🎵 או להאזין למוזיקה מרגיעה"
+      ];
+      
       return (
           <div className="flex-grow flex items-center justify-center p-4 md:p-8">
               <div className="text-center max-w-md w-full">
-                  <h2 className="text-2xl font-semibold text-slate-800">מכין לך בוחן חכם...</h2>
-                  <p className="text-slate-500 mt-2 mb-6">הבינה המלאכותית מנתחת את חומר הלימוד כדי ליצור סט ייחודי של שאלות עבורך. תהליך זה עשוי להימשך מספר רגעים.</p>
+                  <h2 className="text-2xl font-semibold text-slate-800 mb-2">מכין לך בוחן חכם...</h2>
+                  <p className="text-slate-600 mt-4 mb-2 min-h-[3rem] flex items-center justify-center text-base leading-relaxed">
+                    {currentMessage}
+                  </p>
+                  <p className="text-slate-500 text-sm mb-4">
+                    ⏱️ תהליך זה אורך כ-1:30 דקות. אנא המתן...
+                  </p>
                   <div className="w-full bg-slate-200 rounded-full h-3 shadow-inner overflow-hidden">
                       <div 
                           className="h-full rounded-full transition-all duration-300 ease-linear bg-gradient-to-r from-sky-500 to-blue-600" 
@@ -585,6 +844,23 @@ const QuizView: React.FC<QuizViewProps> = ({
                       ></div>
                   </div>
                   <p className="text-center text-sm font-semibold text-slate-600 mt-3">{displayProgress}%</p>
+                  
+                  {/* Suggestions section */}
+                  <div className="mt-8 pt-6 border-t border-slate-200">
+                    <p className="text-sm font-medium text-slate-700 mb-3">💡 בינתיים, תוכל:</p>
+                    <div className="space-y-2 mb-4">
+                      {suggestions.slice(0, 4).map((suggestion, idx) => (
+                        <p key={idx} className="text-sm text-slate-600 leading-relaxed">
+                          {suggestion}
+                        </p>
+                      ))}
+                    </div>
+                    <div className="mt-4 p-3 bg-sky-50 border border-sky-200 rounded-xl">
+                      <p className="text-sm text-sky-800 font-medium leading-relaxed">
+                        🔔 <strong>לא צריך להמתין כאן!</strong> נשלח לך הודעה כשהבוחן יהיה מוכן. תוכל לחזור בכל עת.
+                      </p>
+                    </div>
+                  </div>
               </div>
           </div>
       );
@@ -982,6 +1258,11 @@ const QuizView: React.FC<QuizViewProps> = ({
                     <p className="text-base text-blue-900 leading-relaxed font-medium">
                       {displayBookReference.replace(/בקובץ\.?/g, '').trim()}
                     </p>
+                    <div className="mt-3 pt-3 border-t border-blue-200">
+                      <p className="text-xs text-blue-600 italic leading-relaxed">
+                        💡 אני בדרך כלל צודק, אבל לפעמים גם אני מתבלבל. אם זה קורה, פשוט תשאלו את המורה.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>

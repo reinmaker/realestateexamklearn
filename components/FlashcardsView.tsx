@@ -560,6 +560,11 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                     <p className="text-base text-blue-900 leading-relaxed font-medium">
                       {displayBookReference.replace(/בקובץ\.?/g, '').trim()}
                     </p>
+                    <div className="mt-3 pt-3 border-t border-blue-200">
+                      <p className="text-xs text-blue-600 italic leading-relaxed">
+                        💡 אני בדרך כלל צודק, אבל לפעמים גם אני מתבלבל. אם זה קורה, פשוט תשאלו את המורה.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>

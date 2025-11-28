@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { QuizResult, ViewType, AnalysisResult } from '../types';
 import { SparklesIcon, QuizIcon, FlashcardsIcon, ExamIcon } from './icons';
 import { resendConfirmationEmail } from '../services/authService';
@@ -214,106 +214,121 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
   const [isResendingEmail, setIsResendingEmail] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [quizPassFail, setQuizPassFail] = useState<{ passed: number; failed: number }>({ passed: 0, failed: 0 });
+  const hasFetchedSessionsRef = useRef(false);
+  const lastHistoryLengthRef = useRef(0);
   
   // Fetch quiz sessions to calculate pass/fail counts
+  // Only refetch when a new quiz is completed (history length changes), not on every mount
   useEffect(() => {
-    const fetchQuizSessions = async () => {
-      // Minimal delay to allow session save to complete (300ms should be enough for DB write)
-      // userStats dependency triggers refresh immediately after quiz completion
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          setQuizPassFail({ passed: 0, failed: 0 });
-          return;
+    const currentHistoryLength = quizHistory.length + examHistory.length;
+    const historyChanged = currentHistoryLength !== lastHistoryLengthRef.current;
+    
+    // Only fetch if:
+    // 1. We haven't fetched yet (first load), OR
+    // 2. History actually changed (new quiz completed)
+    if (!hasFetchedSessionsRef.current || historyChanged) {
+      const fetchQuizSessions = async () => {
+        // Only add delay if history changed (new quiz completed)
+        if (historyChanged) {
+          // Minimal delay to allow session save to complete (300ms should be enough for DB write)
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
         
-        const { sessions, error } = await getUserSessions(user.id, 1000); // Get all sessions
-        if (error) {
-          console.error('Error fetching quiz sessions:', error);
-          setQuizPassFail({ passed: 0, failed: 0 });
-          return;
-        }
-        
-        // Filter only quiz sessions (not exams)
-        const quizSessions = sessions.filter(s => s.session_type === 'quiz');
-        
-        // Calculate passed (>= 60%) and failed (< 60%)
-        // Handle both decimal (0.6) and percentage (60) formats, and null/undefined
-        const passed = quizSessions.filter(s => {
-          // Handle null/undefined percentage
-          if (s.percentage === null || s.percentage === undefined) {
-            // Calculate from score and total_questions if percentage is missing
-            if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
-              const calculatedPercentage = (s.score / s.total_questions) * 100;
-              return calculatedPercentage >= 60;
-            }
-            return false;
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) {
+            setQuizPassFail({ passed: 0, failed: 0 });
+            return;
           }
           
-          let percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(String(s.percentage)) || 0;
+          const { sessions, error } = await getUserSessions(user.id, 1000); // Get all sessions
+          if (error) {
+            console.error('Error fetching quiz sessions:', error);
+            setQuizPassFail({ passed: 0, failed: 0 });
+            return;
+          }
           
-          // Handle NaN
-          if (isNaN(percentage)) {
-            // Try to calculate from score
-            if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
-              percentage = (s.score / s.total_questions) * 100;
-            } else {
+          // Filter only quiz sessions (not exams)
+          const quizSessions = sessions.filter(s => s.session_type === 'quiz');
+          
+          // Calculate passed (>= 60%) and failed (< 60%)
+          // Handle both decimal (0.6) and percentage (60) formats, and null/undefined
+          const passed = quizSessions.filter(s => {
+            // Handle null/undefined percentage
+            if (s.percentage === null || s.percentage === undefined) {
+              // Calculate from score and total_questions if percentage is missing
+              if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
+                const calculatedPercentage = (s.score / s.total_questions) * 100;
+                return calculatedPercentage >= 60;
+              }
               return false;
             }
-          }
-          
-          // If percentage is stored as decimal (0-1), convert to percentage (0-100)
-          if (percentage > 0 && percentage <= 1) {
-            percentage = percentage * 100;
-          }
-          
-          const isPassed = percentage >= 60;
-          return isPassed;
-        }).length;
-        
-        const failed = quizSessions.filter(s => {
-          // Handle null/undefined percentage
-          if (s.percentage === null || s.percentage === undefined) {
-            // Calculate from score and total_questions if percentage is missing
-            if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
-              const calculatedPercentage = (s.score / s.total_questions) * 100;
-              return calculatedPercentage < 60;
+            
+            let percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(String(s.percentage)) || 0;
+            
+            // Handle NaN
+            if (isNaN(percentage)) {
+              // Try to calculate from score
+              if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
+                percentage = (s.score / s.total_questions) * 100;
+              } else {
+                return false;
+              }
             }
-            return true; // Mark as failed if no data
-          }
-          
-          let percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(String(s.percentage)) || 0;
-          
-          // Handle NaN
-          if (isNaN(percentage)) {
-            // Try to calculate from score
-            if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
-              percentage = (s.score / s.total_questions) * 100;
-            } else {
-              return true; // Mark as failed if invalid
+            
+            // If percentage is stored as decimal (0-1), convert to percentage (0-100)
+            if (percentage > 0 && percentage <= 1) {
+              percentage = percentage * 100;
             }
-          }
+            
+            const isPassed = percentage >= 60;
+            return isPassed;
+          }).length;
           
-          // If percentage is stored as decimal (0-1), convert to percentage (0-100)
-          if (percentage > 0 && percentage <= 1) {
-            percentage = percentage * 100;
-          }
+          const failed = quizSessions.filter(s => {
+            // Handle null/undefined percentage
+            if (s.percentage === null || s.percentage === undefined) {
+              // Calculate from score and total_questions if percentage is missing
+              if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
+                const calculatedPercentage = (s.score / s.total_questions) * 100;
+                return calculatedPercentage < 60;
+              }
+              return true; // Mark as failed if no data
+            }
+            
+            let percentage = typeof s.percentage === 'number' ? s.percentage : parseFloat(String(s.percentage)) || 0;
+            
+            // Handle NaN
+            if (isNaN(percentage)) {
+              // Try to calculate from score
+              if (s.score !== undefined && s.total_questions !== undefined && s.total_questions > 0) {
+                percentage = (s.score / s.total_questions) * 100;
+              } else {
+                return true; // Mark as failed if invalid
+              }
+            }
+            
+            // If percentage is stored as decimal (0-1), convert to percentage (0-100)
+            if (percentage > 0 && percentage <= 1) {
+              percentage = percentage * 100;
+            }
+            
+            const isFailed = percentage < 60;
+            return isFailed;
+          }).length;
           
-          const isFailed = percentage < 60;
-          return isFailed;
-        }).length;
-        
-        setQuizPassFail({ passed, failed });
-      } catch (error) {
-        console.error('Error in fetchQuizSessions:', error);
-        setQuizPassFail({ passed: 0, failed: 0 });
-      }
-    };
-    
-    fetchQuizSessions();
-  }, [quizHistory, examHistory, userStats]); // Re-fetch when history or stats change (stats updates immediately after quiz completion)
+          setQuizPassFail({ passed, failed });
+          hasFetchedSessionsRef.current = true;
+          lastHistoryLengthRef.current = currentHistoryLength;
+        } catch (error) {
+          console.error('Error in fetchQuizSessions:', error);
+          setQuizPassFail({ passed: 0, failed: 0 });
+        }
+      };
+      
+      fetchQuizSessions();
+    }
+  }, [quizHistory.length, examHistory.length]); // Only depend on length, not the full arrays, to avoid unnecessary refetches
   
   // Use DB stats if available, otherwise calculate from history
   // Force recalculation when userStats changes by using JSON.stringify for deep comparison

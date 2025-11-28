@@ -37,6 +37,7 @@ const App: React.FC = () => {
   const [examHistory, setExamHistory] = useState<QuizResult[]>([]);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isExamInProgress, setIsExamInProgress] = useState(false);
+  const [showReinforcementQuizReadyToast, setShowReinforcementQuizReadyToast] = useState(false);
   
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[] | null>(null);
   const [reinforcementQuizQuestions, setReinforcementQuizQuestions] = useState<QuizQuestion[] | null>(null);
@@ -95,6 +96,7 @@ const App: React.FC = () => {
   const statsSavedForQuizRef = useRef(false); // Track if stats have been saved for current quiz
   const statsSavedForReinforcementQuizRef = useRef(false); // Track if stats have been saved for current reinforcement quiz
   const recentlyShownQuestionsRef = useRef<string[]>([]); // Track last 50 questions shown to avoid repeats
+  const toastShownForQuizRef = useRef<string>(''); // Track which quiz we've shown toast for (by questions length)
   const chatSessionInitializedRef = useRef(false); // Track if chat session has been initialized
   const isCheckingAdminRef = useRef(false); // Track if admin check is in progress
   const lastCheckedUserIdRef = useRef<string | null>(null); // Track last checked user ID
@@ -608,16 +610,19 @@ const App: React.FC = () => {
         setAppError(null);
         
         try {
-          // Generate questions from PDF materials (part1.pdf and part2.pdf)
-          // This is specific to reinforcement quiz - uses PDFs exclusively
-          const aiQuestions = await generateQuizFromPdfs(TOTAL_QUESTIONS);
+          // Generate questions in batches: first 5 questions immediately, then the rest
+          const FIRST_BATCH_SIZE = 5;
+          const REMAINING_COUNT = TOTAL_QUESTIONS - FIRST_BATCH_SIZE;
           
-          if (!aiQuestions || aiQuestions.length === 0) {
+          // Generate first batch of 10 questions
+          const firstBatchQuestions = await generateQuizFromPdfs(FIRST_BATCH_SIZE);
+          
+          if (!firstBatchQuestions || firstBatchQuestions.length === 0) {
             throw new Error('No questions generated from PDFs');
           }
           
-          // Randomize options for all questions
-          const randomizedQuestions = aiQuestions.map(q => {
+          // Randomize options for first batch
+          const randomizedFirstBatch = firstBatchQuestions.map(q => {
             const correctAnswerText = q.options[q.correctAnswerIndex];
             const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
             const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
@@ -629,8 +634,58 @@ const App: React.FC = () => {
             };
           });
           
-          setReinforcementQuizQuestions(randomizedQuestions);
-          reinforcementQuizQuestionsRef.current = randomizedQuestions;
+          // Show first batch immediately
+          setReinforcementQuizQuestions(randomizedFirstBatch);
+          reinforcementQuizQuestionsRef.current = randomizedFirstBatch;
+          
+          // Toast will be shown by useEffect when exactly 5 questions are ready
+          
+          // Reset targeted quiz flag when first batch is successfully generated
+          targetedReinforcementQuizAttemptedRef.current = false;
+          
+          // Generate remaining questions in the background
+          if (REMAINING_COUNT > 0) {
+            // Keep generation status as true while loading remaining questions
+            generateQuizFromPdfs(REMAINING_COUNT)
+              .then(remainingQuestions => {
+                if (remainingQuestions && remainingQuestions.length > 0) {
+                  // Randomize options for remaining questions
+                  const randomizedRemaining = remainingQuestions.map(q => {
+                    const correctAnswerText = q.options[q.correctAnswerIndex];
+                    const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
+                    const correctAnswerIndex = shuffledOptions.indexOf(correctAnswerText);
+                    
+                    return {
+                      ...q,
+                      options: shuffledOptions,
+                      correctAnswerIndex: correctAnswerIndex !== -1 ? correctAnswerIndex : 0
+                    };
+                  });
+                  
+                  // Append remaining questions to the existing ones
+                  setReinforcementQuizQuestions(prev => {
+                    const combined = [...(prev || []), ...randomizedRemaining];
+                    reinforcementQuizQuestionsRef.current = combined;
+                    
+                    // Don't show toast here - only show when first batch is ready
+                    
+                    return combined;
+                  });
+                }
+              })
+              .catch(error => {
+                console.error('Error generating remaining questions:', error);
+                // Don't throw - user already has first batch, can continue
+                setAppError('חלק מהשאלות לא נטענו. תוכל להמשיך עם השאלות הקיימות.');
+              })
+              .finally(() => {
+                // Mark generation as complete when remaining questions are done
+                setGenerationStatus(prev => ({ ...prev, 'reinforcement-quiz': { generating: false } }));
+              });
+          } else {
+            // If no remaining questions, mark as complete
+            setGenerationStatus(prev => ({ ...prev, 'reinforcement-quiz': { generating: false } }));
+          }
           
           // Book references will be fetched on-demand when user reaches each question
           
@@ -1254,33 +1309,104 @@ const App: React.FC = () => {
   const handleSetView = useCallback(async (view: ViewType) => {
     if(isExamInProgress && view !== 'exam') return;
     
-    // Reset chat history when starting a new quiz (only if coming from a different view)
-    if ((view === 'quiz' || view === 'reinforcement-quiz') && currentView !== view && chatSession) {
-      setChatSession(prev => prev ? { ...prev, history: [] } : null);
+    // Don't clear questions or reset progress when switching between quiz types - preserve everything
+    // Each quiz type maintains its own independent progress state
+    if (currentView === 'quiz' && view === 'reinforcement-quiz') {
+      // Switching from regular quiz to reinforcement quiz - preserve both progress states
+      targetedQuizAttemptedRef.current = false;
+      // Don't reset progress - preserve where user left off in each quiz
+    } else if (currentView === 'reinforcement-quiz' && view === 'quiz') {
+      // Switching from reinforcement quiz to regular quiz - preserve both progress states
+      targetedReinforcementQuizAttemptedRef.current = false;
+      // Don't reset progress - preserve where user left off in each quiz
+    } else if ((view === 'quiz' || view === 'reinforcement-quiz') && currentView !== view) {
+      // Switching to a quiz type from a different view (not from another quiz type)
+      // Only clear questions if quiz is finished - preserve questions and progress if quiz is in progress
+      if (currentView !== 'quiz' && currentView !== 'reinforcement-quiz') {
+        // Coming from home or other non-quiz view
+        // Only clear questions if quiz is finished (user completed it)
+        if (view === 'quiz') {
+          const isQuizFinished = quizProgress.isFinished;
+          if (isQuizFinished) {
+            // Quiz is finished - clear for fresh start
+            setQuizQuestions(null);
+            resetQuizProgress();
+            try {
+              sessionStorage.removeItem('quiz_regenerated_regular');
+            } catch (error) {
+              // Ignore sessionStorage errors
+            }
+          }
+          // If quiz is not finished, preserve questions and progress
+        } else if (view === 'reinforcement-quiz') {
+          const isReinforcementQuizFinished = reinforcementQuizProgress.isFinished;
+          if (isReinforcementQuizFinished) {
+            // Quiz is finished - clear for fresh start
+            setReinforcementQuizQuestions(null);
+            resetReinforcementQuizProgress();
+            try {
+              sessionStorage.removeItem('quiz_regenerated_reinforcement');
+            } catch (error) {
+              // Ignore sessionStorage errors
+            }
+          }
+          // If quiz is not finished, preserve questions and progress
+        }
+      }
     }
     
-    // Reset targeted quiz flag when navigating away from quiz view
-    // This allows regenerateQuiz() to be called again if user comes back
-    if (currentView === 'quiz' && view !== 'quiz') {
-      targetedQuizAttemptedRef.current = false;
+    // Reset chat history when starting a new quiz (only if coming from a different view AND quiz is finished)
+    if ((view === 'quiz' || view === 'reinforcement-quiz') && currentView !== view && chatSession) {
+      const isQuizFinished = view === 'quiz' ? quizProgress.isFinished : reinforcementQuizProgress.isFinished;
+      if (isQuizFinished) {
+        setChatSession(prev => prev ? { ...prev, history: [] } : null);
+      }
     }
-    if (currentView === 'reinforcement-quiz' && view !== 'reinforcement-quiz') {
-      targetedReinforcementQuizAttemptedRef.current = false;
+    
+    // Don't reset targeted quiz flag when navigating away - preserve it so quiz doesn't regenerate
+    // Only reset when quiz is finished
+    
+    // Dismiss toast when navigating to reinforcement quiz
+    if (view === 'reinforcement-quiz') {
+      setShowReinforcementQuizReadyToast(false);
     }
     
     setCurrentView(view);
     setIsMobileSidebarOpen(false);
     
-    // When navigating to home, refresh stats to ensure they're up to date
-    if (view === 'home' && currentUser) {
-      const { stats: refreshedStats, error: refreshError } = await getUserStats(currentUser.id);
-      if (!refreshError && refreshedStats) {
-        setUserStats(refreshedStats);
-      } else if (refreshError) {
-        console.error('Error refreshing stats on home navigation:', refreshError);
+    // Stats are automatically refreshed when quizzes/exams finish (in handleQuestionAnswered and handleExamFinished)
+    // No need to refresh stats on every navigation to home
+  }, [currentUser, chatSession, currentView]);
+  
+  // Show toast when first batch of reinforcement quiz is ready (exactly 5 questions, only once)
+  useEffect(() => {
+    const questionCount = reinforcementQuizQuestions?.length || 0;
+    const FIRST_BATCH_SIZE = 5;
+    const isFirstBatchReady = questionCount === FIRST_BATCH_SIZE; // Exactly 5, not more
+    
+    // Show toast only when first batch is exactly ready (5 questions) and user is not currently viewing the quiz
+    // Only show once per quiz generation
+    if (isFirstBatchReady && currentView !== 'reinforcement-quiz') {
+      const firstBatchKey = `first_batch_ready`;
+      // Only show if we haven't shown it yet for this quiz generation
+      if (toastShownForQuizRef.current !== firstBatchKey) {
+        console.log('Showing reinforcement quiz ready toast (first batch)', { questionCount, currentView });
+        setShowReinforcementQuizReadyToast(true);
+        toastShownForQuizRef.current = firstBatchKey;
       }
     }
-  }, [currentUser, chatSession, currentView]);
+    
+    // Hide toast when user navigates to reinforcement quiz
+    if (currentView === 'reinforcement-quiz') {
+      setShowReinforcementQuizReadyToast(false);
+    }
+    
+    // Reset toast tracking when quiz is cleared or regenerated
+    if (questionCount === 0) {
+      toastShownForQuizRef.current = '';
+      setShowReinforcementQuizReadyToast(false);
+    }
+  }, [reinforcementQuizQuestions?.length, currentView]);
   
   const handleCreateTargetedFlashcards = useCallback(async (weaknesses: string[]) => {
       setCurrentView('flashcards');
@@ -1660,6 +1786,41 @@ const App: React.FC = () => {
                     <CloseIcon className="h-5 w-5" />
                 </button>
             </div>
+        )}
+        
+        {/* Toast notification when reinforcement quiz is ready */}
+        {showReinforcementQuizReadyToast && (
+          <div className="fixed bottom-24 left-4 z-[9999] max-w-sm w-[calc(100vw-2rem)] animate-fade-in">
+            <div 
+              onClick={() => {
+                setShowReinforcementQuizReadyToast(false);
+                handleSetView('reinforcement-quiz');
+              }}
+              className="bg-gradient-to-r from-sky-500 to-blue-600 text-white p-4 rounded-2xl shadow-xl cursor-pointer hover:from-sky-600 hover:to-blue-700 transition-all duration-200 border-2 border-white/20"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-2xl">🎉</span>
+                    <h3 className="font-semibold text-lg">הבוחן החיזוק מוכן!</h3>
+                  </div>
+                  <p className="text-sm text-white/90 leading-relaxed">
+                    סיימנו להכין את הבוחן המותאם אישית שלך. לחץ כדי להתחיל!
+                  </p>
+                </div>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowReinforcementQuizReadyToast(false);
+                  }}
+                  className="p-1 rounded-full hover:bg-white/20 transition-colors mr-2 flex-shrink-0"
+                  aria-label="סגור"
+                >
+                  <CloseIcon className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          </div>
         )}
         
         <div className="flex-1 flex flex-col overflow-y-auto">

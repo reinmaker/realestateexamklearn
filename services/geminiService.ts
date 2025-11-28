@@ -528,9 +528,18 @@ ${TABLE_OF_CONTENTS}
  * Generate quiz questions exclusively from PDF materials (part1.pdf and part2.pdf)
  * This function REQUIRES PDFs to be attached - no fallback to text-only generation
  * Used specifically for reinforcement quiz
+ * Uses Gemini 3 Pro with optimized PDF media resolution
  */
 export async function generateQuizFromPdfs(count: number = 10): Promise<QuizQuestion[]> {
+  // Create Gemini 3 Pro client with v1alpha API version for media_resolution support
+  const aiGemini3 = new GoogleGenAI({ 
+    apiKey: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || '',
+    apiVersion: 'v1alpha' // Required for media_resolution parameter
+  });
+  
+  // Use regular AI client for PDF upload (file upload API doesn't need v1alpha)
   const ai = getAi();
+  
   try {
     return await retryWithBackoff(async () => {
       const { attachBookPdfsToGemini } = await import('./bookReferenceService');
@@ -604,23 +613,45 @@ export async function generateQuizFromPdfs(count: number = 10): Promise<QuizQues
 
 אל תקצר תהליכים - לכל שאלה בנפרד, קרא את התוכן הרלוונטי בקבצי ה-PDF, ורק אז צור את השאלה.`;
 
+      // STEP 3: Prepare PDF parts with media_resolution for Gemini 3
+      // According to Gemini 3 docs: media_resolution_medium (560 tokens) is optimal for PDF document understanding
+      // Quality typically saturates at medium - increasing to high rarely improves OCR results for standard documents
+      // mediaResolution must be at the same level as fileData/inlineData in the part structure
+      // 
+      // Gemini 3 Benefits:
+      // - Native text in PDFs is automatically extracted and provided to the model
+      // - You are NOT charged for tokens from native text extraction (cost savings)
+      // - PDF pages processed as images are counted under IMAGE modality in usage_metadata
+      const pdfPartsWithResolution = pdfAttachment.parts.map((part: any) => {
+        // Each part from attachBookPdfsToGemini has structure: { fileData: { mimeType: 'application/pdf', fileUri: '...' } }
+        // We add mediaResolution at the same level as fileData
+        // This structure works with both direct fileData format and createPartFromUri helper
+        return {
+          ...part,
+          mediaResolution: {
+            level: 'media_resolution_medium' // 560 tokens max - optimal for PDFs per Gemini 3 documentation
+          }
+        };
+      });
+
       contents = [
         {
           role: 'user',
           parts: [
             { text: prompt },
-            ...pdfAttachment.parts
+            ...pdfPartsWithResolution
           ],
         },
       ];
 
-      // STEP 3: Generate questions with PDFs attached
-      const response: GenerateContentResponse = await ai.models.generateContent({
-        model,
+      // STEP 4: Generate questions with Gemini 3 Pro using PDFs with media resolution
+      const response: GenerateContentResponse = await aiGemini3.models.generateContent({
+        model: 'gemini-3-pro-preview', // Use Gemini 3 Pro
         contents: contents,
         config: {
           responseMimeType: "application/json",
           responseSchema: quizSchema,
+          thinkingLevel: 'high', // Use high thinking level for complex reasoning (default but explicit)
         },
       });
       
@@ -893,7 +924,7 @@ export async function generateFlashcards(documentContent?: string, count: number
     const ai = getAi();
     try {
         const { TABLE_OF_CONTENTS } = await import('./bookReferenceService');
-        const prompt = `אתה מורה מומחה למבחן התיווך הישראלי. תפקידך הוא לזהות את עקרונות הליבה המשפטיים, ההגדרות והכללים המרכזיים הנבחנים במסמך המצורף. בהתבסס על כך, צור סט של ${count} כרטיסיות לימוד בפורמט של שאלה-תשובה. כל כרטיסייה צריכה להתמקד במושג אחד חשוב. השאלות צריכות להיות ברורות. התשובות חייבות להיות קצרות ותמציתיות באופן קיצוני - משפט קצר אחד או שניים לכל היותר. יש לנסח אותן בשפה פשוטה וישירה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד לא בהדגשה (ללא כוכביות **). אל תהפוך את שאלות המבחן הקיימות לכרטיסיות; במקום זאת, זקק מהן את הידע המשפטי הבסיסי. כל התוכן חייב להיות בעברית.
+        const prompt = `אתה מורה מומחה למבחן התיווך הישראלי. תפקידך הוא לזהות את עקרונות הליבה המשפטיים, ההגדרות והכללים המרכזיים הנבחנים במסמך המצורף. בהתבסס על כך, צור סט של ${count} כרטיסיות לימוד בפורמט של שאלה-תשובה פתוחה (לא מבחן אמריקאי). כל כרטיסייה צריכה להתמקד במושג אחד חשוב. השאלות צריכות להיות ברורות ופתוחות - לעולם אל תנסח שאלות כמבחן אמריקאי עם אפשרויות תשובה מרובות. השתמש בשאלות פתוחות כמו "מהו...?", "מהי...?", "מהו התהליך...?" וכו'. התשובות חייבות להיות קצרות ותמציתיות באופן קיצוני - משפט קצר אחד או שניים לכל היותר. יש לנסח אותן בשפה פשוטה וישירה. חל איסור מוחלט להשתמש בעיצוב טקסט כלשהו, במיוחד לא בהדגשה (ללא כוכביות **). אל תהפוך את שאלות המבחן הקיימות לכרטיסיות; במקום זאת, זקק מהן את הידע המשפטי הבסיסי. כל התוכן חייב להיות בעברית.
 
 המסמך המכיל מבחנים קודמים הוא:
 ---
@@ -1321,7 +1352,7 @@ export async function generateTargetedFlashcards(weaknesses: string[], documentC
     try {
         const prompt = `אתה מורה מומחה למבחן התיווך הישראלי. תפקידך ליצור סט של ${count} כרטיסיות לימוד ממוקדות כדי לעזור לתלמיד לחזק את נקודות התורפה שלו. הכרטיסיות צריכות להתמקד אך ורק בנושאים הבאים: ${weaknesses.join(', ')}.
 
-השתמש בחומר הלימוד המצורף כמקור בלעדי לידע. כל כרטיסייה צריכה להיות בפורמט שאלה-תשובה. שאלות ברורות, תשובות קצרות ותמציתיות (משפט אחד או שניים). אין להשתמש בעיצוב טקסט כלשהו (כמו הדגשה). כל התוכן חייב להיות בעברית.
+השתמש בחומר הלימוד המצורף כמקור בלעדי לידע. כל כרטיסייה צריכה להיות בפורמט שאלה-תשובה פתוחה (לא מבחן אמריקאי). השאלות חייבות להיות שאלות פתוחות וברורות - לעולם אל תנסח שאלות כמבחן אמריקאי עם אפשרויות תשובה מרובות. השתמש בשאלות פתוחות כמו "מהו...?", "מהי...?", "מהו התהליך...?" וכו'. תשובות קצרות ותמציתיות (משפט אחד או שניים). אין להשתמש בעיצוב טקסט כלשהו (כמו הדגשה). כל התוכן חייב להיות בעברית.
 
 חומר לימוד:
 ---
