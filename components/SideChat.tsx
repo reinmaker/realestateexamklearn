@@ -14,9 +14,10 @@ interface ChatWidgetProps {
   setAppError: (error: string | null) => void;
   chatSession: ChatSession | null;
   setChatSession: React.Dispatch<React.SetStateAction<ChatSession | null>>;
+  hasValidPayment?: boolean;
 }
 
-const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onContextClose, documentContent, setAppError, chatSession, setChatSession, userName }) => {
+const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onContextClose, documentContent, setAppError, chatSession, setChatSession, userName, hasValidPayment = true }) => {
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(chatSession);
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -39,10 +40,13 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
   useEffect(() => {
     if (isOpen && !isContextual && !hasInitializedRef.current && (!currentSession || currentSession.history.length === 0)) {
       hasInitializedRef.current = true;
-      // Set a welcome message immediately
-      const welcomeMessage = userName 
+      // Set a welcome message immediately - include payment notice if needed
+      let welcomeMessage = userName 
         ? `היי ${userName}, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?`
         : 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
+      if (!hasValidPayment) {
+        welcomeMessage = 'היי, אני דניאל, המורה הפרטי שלך. לצערי, אני לא יכול לענות על שאלות עד שתשלים את התשלום לפלטפורמה. אנא השלם את התשלום כדי להמשיך.';
+      }
       if (!currentSession) {
         // If currentSession is null, create a temporary session with welcome message
         const tempSession: ChatSession = {
@@ -58,11 +62,27 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
         setChatSession(updatedSession);
       }
     }
-  }, [isOpen, isContextual, currentSession, setChatSession, userName]);
+  }, [isOpen, isContextual, currentSession, setChatSession, userName, hasValidPayment]);
 
   useEffect(() => {
     const initializeExplanationChat = async () => {
         if (!context) return;
+        
+        // Check payment status - don't allow explanation chat if user hasn't paid
+        if (!hasValidPayment) {
+          setAppError(null);
+          setCurrentSession(null);
+          setIsLoading(false);
+          setIsContextual(true);
+          setHeaderTitle('הסבר נוסף');
+          const paymentMessage = 'אני לא יכול לענות על שאלות עד שתשלים את התשלום לפלטפורמה. אנא השלם את התשלום כדי להמשיך.';
+          const tempSession: ChatSession = {
+            chat: null as any,
+            history: [{ role: 'model', text: paymentMessage }],
+          };
+          setCurrentSession(tempSession);
+          return;
+        }
         
         setAppError(null);
         setCurrentSession(null);
@@ -93,7 +113,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
     };
     
     initializeExplanationChat();
-  }, [context, documentContent, setAppError]);
+  }, [context, documentContent, setAppError, hasValidPayment, userName]);
 
   useEffect(() => {
     scrollToBottom();
@@ -102,6 +122,21 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userInput.trim() || !currentSession || isLoading) return;
+
+    // Check payment status - don't allow chat if user hasn't paid
+    if (!hasValidPayment) {
+      const paymentMessage = 'אני לא יכול לענות על שאלות עד שתשלים את התשלום לפלטפורמה. אנא השלם את התשלום כדי להמשיך.';
+      const paymentMessageChat: ChatMessage = { role: 'model', text: paymentMessage };
+      const sessionWithPaymentMessage = currentSession ? { ...currentSession, history: [...currentSession.history, paymentMessageChat] } : null;
+      if (sessionWithPaymentMessage) {
+        setCurrentSession(sessionWithPaymentMessage);
+        if (!isContextual) {
+          setChatSession(sessionWithPaymentMessage);
+        }
+      }
+      setUserInput('');
+      return;
+    }
 
     const newUserMessage: ChatMessage = { role: 'user', text: userInput };
     

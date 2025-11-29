@@ -79,6 +79,7 @@ export interface AdminUser {
   created_at: string;
   last_sign_in_at: string | null;
   is_admin: boolean;
+  payment_bypassed?: boolean;
 }
 
 export interface UserDetails {

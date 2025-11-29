@@ -30,16 +30,22 @@ export interface UserDetails {
  */
 export async function isAdmin(userId: string): Promise<boolean> {
   try {
+    console.log('Checking admin status for user:', userId);
     const { data, error } = await supabase.rpc('is_user_admin', { user_id: userId });
     
     if (error) {
-      console.error('Error checking admin status:', error);
+      console.error('Error checking admin status via RPC:', error);
+      console.error('RPC error details:', JSON.stringify(error, null, 2));
       return false;
     }
     
-    return data === true;
+    console.log('Admin status from RPC:', data, 'Type:', typeof data);
+    // Handle both boolean true and string "true" cases
+    const isAdminResult = data === true || data === 'true' || data === 1;
+    console.log('Final admin status:', isAdminResult);
+    return isAdminResult;
   } catch (error) {
-    console.error('Error in isAdmin:', error);
+    console.error('Exception in isAdmin:', error);
     return false;
   }
 }
@@ -65,6 +71,7 @@ export async function getAllUsers(): Promise<{ users: AdminUser[]; error: Error 
       created_at: user.created_at,
       last_sign_in_at: user.last_sign_in_at,
       is_admin: user.is_admin,
+      payment_bypassed: user.payment_bypassed || false,
     }));
 
     return { users, error: null };
@@ -319,7 +326,7 @@ export async function deleteUser(userId: string): Promise<{ error: Error | null 
  */
 export async function updateUser(
   userId: string,
-  updates: { name?: string; email?: string; is_admin?: boolean }
+  updates: { name?: string; email?: string; is_admin?: boolean; payment_bypassed?: boolean }
 ): Promise<{ error: Error | null }> {
   try {
     const { error } = await supabase.rpc('update_user_admin', {
@@ -327,6 +334,7 @@ export async function updateUser(
       new_name: updates.name || null,
       new_email: updates.email || null,
       new_is_admin: updates.is_admin !== undefined ? updates.is_admin : null,
+      new_payment_bypassed: updates.payment_bypassed !== undefined ? updates.payment_bypassed : null,
     });
 
     if (error) {
@@ -337,6 +345,32 @@ export async function updateUser(
     return { error: null };
   } catch (error) {
     console.error('Error in updateUser:', error);
+    return { error: error instanceof Error ? error : new Error('Unknown error') };
+  }
+}
+
+/**
+ * Toggle payment bypass for a user
+ * Grants or revokes platform access regardless of payment status
+ */
+export async function togglePaymentBypass(userId: string, bypass: boolean): Promise<{ error: Error | null }> {
+  try {
+    const { error } = await supabase.rpc('update_user_admin', {
+      user_id: userId,
+      new_name: null,
+      new_email: null,
+      new_is_admin: null,
+      new_payment_bypassed: bypass,
+    });
+
+    if (error) {
+      console.error('Error toggling payment bypass:', error);
+      return { error };
+    }
+
+    return { error: null };
+  } catch (error) {
+    console.error('Error in togglePaymentBypass:', error);
     return { error: error instanceof Error ? error : new Error('Unknown error') };
   }
 }

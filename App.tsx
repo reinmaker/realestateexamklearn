@@ -23,9 +23,13 @@ import { getCurrentUser, onAuthStateChange, signOut as authSignOut, User } from 
 import { saveUserStats, saveUserSession, saveUserAnalysis, getLatestUserAnalysis, getUserStats, UserStats } from './services/userStatsService';
 import { categorizeQuestionsByTopic, calculateTopicProgress, getWeakAndStrongTopics, saveTopicProgress, getTopicProgress } from './services/topicTrackingService';
 import { isAdmin } from './services/adminService';
+import { checkPaymentStatus } from './services/paymentService';
+import PaymentBanner from './components/PaymentBanner';
+import PaymentModal from './components/PaymentModal';
 // Book references are now fetched on-demand when user reaches each question in QuizView
 
 const App: React.FC = () => {
+  const location = useLocation(); // Get location early for redirect handling
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true); // Track initial auth check
   const [isAdminUser, setIsAdminUser] = useState(false); // Track admin status
@@ -38,6 +42,9 @@ const App: React.FC = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isExamInProgress, setIsExamInProgress] = useState(false);
   const [showReinforcementQuizReadyToast, setShowReinforcementQuizReadyToast] = useState(false);
+  const [hasValidPayment, setHasValidPayment] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[] | null>(null);
   const [reinforcementQuizQuestions, setReinforcementQuizQuestions] = useState<QuizQuestion[] | null>(null);
@@ -454,6 +461,12 @@ const App: React.FC = () => {
   };
 
   const regenerateQuiz = useCallback(async () => {
+    // Check payment status - don't generate quizzes if user hasn't paid
+    if (!hasValidPayment && !isAdminUser) {
+      setAppError('לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.');
+      return;
+    }
+
     // CRITICAL: Don't regenerate if user is actively answering a question
     // This prevents disrupting their current question
     // EXCEPTION: If quiz is finished, always allow regeneration (user clicked "עשה בוחן נוסף")
@@ -554,9 +567,15 @@ const App: React.FC = () => {
     } finally {
         setGenerationStatus(prev => ({ ...prev, quiz: { ...prev.quiz, generating: false } }));
     }
-  }, [documentContent]); // Removed topicProgress to prevent excessive re-renders
+  }, [documentContent, hasValidPayment, isAdminUser]); // Removed topicProgress to prevent excessive re-renders
 
   const regenerateReinforcementQuiz = useCallback(async () => {
+    // Check payment status - don't generate quizzes if user hasn't paid
+    if (!hasValidPayment && !isAdminUser) {
+      setAppError('לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.');
+      return;
+    }
+
     // CRITICAL: Don't regenerate if user is actively answering a question
     // This prevents disrupting their current question
     // EXCEPTION: If quiz is finished, always allow regeneration (user clicked "עשה בוחן נוסף")
@@ -706,7 +725,7 @@ const App: React.FC = () => {
     } finally {
         setGenerationStatus(prev => ({ ...prev, 'reinforcement-quiz': { ...prev['reinforcement-quiz'], generating: false } }));
     }
-  }, [documentContent, chatSession]);
+  }, [documentContent, chatSession, hasValidPayment, isAdminUser]);
   
   // Helper function to calculate similarity between two strings
   const calculateSimilarity = (str1: string, str2: string): number => {
@@ -807,6 +826,12 @@ const App: React.FC = () => {
   };
   
   const regenerateFlashcards = useCallback(async () => {
+    // Check payment status - don't generate flashcards if user hasn't paid
+    if (!hasValidPayment && !isAdminUser) {
+      setAppError('לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.');
+      return;
+    }
+
     setGenerationStatus(prev => ({ ...prev, flashcards: { generating: true } }));
     setAppError(null);
     
@@ -846,9 +871,15 @@ const App: React.FC = () => {
     } finally {
       setGenerationStatus(prev => ({ ...prev, flashcards: { ...prev.flashcards, generating: false } }));
     }
-  }, [documentContent]);
+  }, [documentContent, hasValidPayment, isAdminUser]);
   
   const regenerateExam = useCallback(async () => {
+    // Check payment status - don't generate exam if user hasn't paid
+    if (!hasValidPayment && !isAdminUser) {
+      setAppError('לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.');
+      return;
+    }
+
     setGenerationStatus(prev => ({ ...prev, exam: { generating: true } }));
 
     setAppError(null);
@@ -886,35 +917,62 @@ const App: React.FC = () => {
     } finally {
       setGenerationStatus(prev => ({ ...prev, exam: { generating: false } }));
     }
-  }, [documentContent]);
+  }, [documentContent, hasValidPayment, isAdminUser]);
 
   const handleLoginSuccess = useCallback(async (user: User) => {
     setCurrentUser(user);
-    regenerateFlashcards();
-    regenerateQuiz();
+    // Only regenerate if user has valid payment (or is admin)
+    if (hasValidPayment || isAdminUser) {
+      regenerateFlashcards();
+      regenerateQuiz();
+    }
     
-    try {
-      // Use the user parameter directly since currentUser state might not be updated yet
-      const userName = user?.name || user?.email?.split('@')[0] || undefined;
-      const newChat = await createChatSession(documentContent, userName);
-      const greeting = userName 
-        ? `היי ${userName}, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?`
-        : 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
+    // Only create chat session if user has valid payment
+    if (hasValidPayment) {
+      try {
+        // Use the user parameter directly since currentUser state might not be updated yet
+        const userName = user?.name || user?.email?.split('@')[0] || undefined;
+        const newChat = await createChatSession(documentContent, userName);
+        const greeting = userName 
+          ? `היי ${userName}, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?`
+          : 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
+        setChatSession({
+          chat: newChat,
+          history: [{ role: 'model', text: greeting }],
+        });
+      } catch (error) {
+        if (error instanceof Error) setAppError(error.message);
+        else setAppError("נכשל באתחול סשן הצ\'אט.");
+      }
+    } else {
+      // Set payment message if user hasn't paid
+      const paymentMessage = 'היי, אני דניאל, המורה הפרטי שלך. לצערי, אני לא יכול לענות על שאלות עד שתשלים את התשלום לפלטפורמה. אנא השלם את התשלום כדי להמשיך.';
       setChatSession({
-        chat: newChat,
-        history: [{ role: 'model', text: greeting }],
+        chat: null as any,
+        history: [{ role: 'model', text: paymentMessage }],
       });
-    } catch (error) {
-      if (error instanceof Error) setAppError(error.message);
-      else setAppError("נכשל באתחול סשן הצ\'אט.");
     }
 
   }, [regenerateFlashcards, regenerateQuiz, documentContent]);
 
   const handleLogout = async () => {
-    const { error } = await authSignOut();
-    if (error) {
-      setAppError(error.message || 'שגיאה בהתנתקות');
+    console.log('Logout button clicked');
+    try {
+      const { error } = await authSignOut();
+      if (error) {
+        console.error('Logout error:', error);
+        setAppError(error.message || 'שגיאה בהתנתקות');
+      } else {
+        console.log('Logout successful');
+        // Explicitly reset state in case auth listener doesn't fire immediately
+        setCurrentUser(null);
+        setCurrentView('home');
+        setHasValidPayment(false);
+        setIsAdminUser(false);
+      }
+    } catch (err) {
+      console.error('Exception during logout:', err);
+      setAppError('שגיאה בהתנתקות');
     }
     // The auth state change listener will handle the rest
   };
@@ -938,6 +996,7 @@ const App: React.FC = () => {
         lastCheckedUserIdRef.current = currentUser.id;
         try {
           const adminStatus = await isAdmin(currentUser.id);
+          console.log('Admin status check result:', { userId: currentUser.id, email: currentUser.email, isAdmin: adminStatus });
           setIsAdminUser(adminStatus);
         } catch (error) {
           console.error('Error checking admin status:', error);
@@ -953,6 +1012,21 @@ const App: React.FC = () => {
     checkAdminStatus();
   }, [currentUser]);
 
+  // Check payment status when user and admin status are available
+  useEffect(() => {
+    if (currentUser) {
+      if (isAdminUser) {
+        // Admins have free access
+        setHasValidPayment(true);
+      } else {
+        // Check payment status for regular users
+        checkUserPaymentStatus(currentUser.id);
+      }
+    } else {
+      setHasValidPayment(false);
+    }
+  }, [currentUser, isAdminUser]);
+
   useEffect(() => {
     let isInitialized = false;
     let currentUserForInit: User | null = null;
@@ -962,20 +1036,23 @@ const App: React.FC = () => {
       if (!isInitialized && user) {
         isInitialized = true;
         currentUserForInit = user;
-        // Only regenerate if not already generated
-        if (!flashcards) {
-          regenerateFlashcards();
-        }
-        // Only regenerate if not already generating and no targeted quiz was attempted
-        // This prevents triggering regenerateQuiz() when targeted quiz generation fails
-        if (!quizQuestions && !generationStatus.quiz.generating && !targetedQuizAttemptedRef.current) {
-          regenerateQuiz();
-        }
-        if (!reinforcementQuizQuestions && !generationStatus['reinforcement-quiz'].generating && !targetedReinforcementQuizAttemptedRef.current) {
-          regenerateReinforcementQuiz();
-        }
-        if (!examQuestions) {
-          regenerateExam();
+        // Only regenerate if user has valid payment (or is admin)
+        if (hasValidPayment || isAdminUser) {
+          // Only regenerate if not already generated
+          if (!flashcards) {
+            regenerateFlashcards();
+          }
+          // Only regenerate if not already generating and no targeted quiz was attempted
+          // This prevents triggering regenerateQuiz() when targeted quiz generation fails
+          if (!quizQuestions && !generationStatus.quiz.generating && !targetedQuizAttemptedRef.current) {
+            regenerateQuiz();
+          }
+          if (!reinforcementQuizQuestions && !generationStatus['reinforcement-quiz'].generating && !targetedReinforcementQuizAttemptedRef.current) {
+            regenerateReinforcementQuiz();
+          }
+          if (!examQuestions) {
+            regenerateExam();
+          }
         }
         // Only initialize chat session if it hasn't been initialized yet (preserve existing history)
         if (!chatSessionInitializedRef.current) {
@@ -1070,6 +1147,8 @@ const App: React.FC = () => {
             isLoadingUserDataRef.current = false;
           }
           await initializeAppState(user);
+          
+          // Payment status will be checked in useEffect after admin status is determined
         }
       } catch (error) {
         console.error('Error checking initial session:', error);
@@ -1146,6 +1225,7 @@ const App: React.FC = () => {
           isInitialized = false;
           isLoadingUserDataRef.current = false;
           lastLoadedUserIdRef.current = null;
+          setHasValidPayment(false);
         }
       }
     });
@@ -1171,6 +1251,36 @@ const App: React.FC = () => {
     setSideChatContext('');
   };
 
+  // Check user payment status
+  const checkUserPaymentStatus = async (userId: string) => {
+    setIsCheckingPayment(true);
+    try {
+      const { hasValidPayment: isValid, payment, error } = await checkPaymentStatus(userId);
+      console.log('Payment check result:', { userId, isValid, payment, error });
+      if (error) {
+        console.error('Error checking payment status:', error);
+        setHasValidPayment(false);
+      } else {
+        console.log('Setting hasValidPayment to:', isValid);
+        setHasValidPayment(isValid);
+      }
+    } catch (error) {
+      console.error('Error checking payment status:', error);
+      setHasValidPayment(false);
+    } finally {
+      setIsCheckingPayment(false);
+    }
+  };
+
+  // Handle payment success
+  const handlePaymentSuccess = async () => {
+    setIsPaymentModalOpen(false);
+    if (currentUser) {
+      // Recheck payment status
+      await checkUserPaymentStatus(currentUser.id);
+    }
+  };
+
   const handleQuestionAnswered = async (result: QuizResult) => {
     // Track this question as recently shown (to avoid repeats within 50 questions)
     addToRecentlyShown(result.question);
@@ -1183,17 +1293,18 @@ const App: React.FC = () => {
     if (result.topic) {
       setTopicProgress(prev => {
         const newMap = new Map(prev);
-        const existing = newMap.get(result.topic!) || { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0, accuracy: 0 };
-        existing.totalQuestions++;
-        if (result.isCorrect) {
-          existing.correctAnswers++;
-        } else {
-          existing.incorrectAnswers++;
-        }
-        existing.accuracy = existing.totalQuestions > 0 
-          ? (existing.correctAnswers / existing.totalQuestions) * 100 
+        const existing = newMap.get(result.topic!) as { totalQuestions: number; correctAnswers: number; incorrectAnswers: number; accuracy: number } | undefined;
+        const current = existing || { totalQuestions: 0, correctAnswers: 0, incorrectAnswers: 0, accuracy: 0 };
+        const updated = {
+          totalQuestions: current.totalQuestions + 1,
+          correctAnswers: result.isCorrect ? current.correctAnswers + 1 : current.correctAnswers,
+          incorrectAnswers: result.isCorrect ? current.incorrectAnswers : current.incorrectAnswers + 1,
+          accuracy: 0
+        };
+        updated.accuracy = updated.totalQuestions > 0 
+          ? (updated.correctAnswers / updated.totalQuestions) * 100 
           : 0;
-        newMap.set(result.topic!, existing);
+        newMap.set(result.topic!, updated);
         return newMap;
       });
     }
@@ -1390,7 +1501,6 @@ const App: React.FC = () => {
       const firstBatchKey = `first_batch_ready`;
       // Only show if we haven't shown it yet for this quiz generation
       if (toastShownForQuizRef.current !== firstBatchKey) {
-        console.log('Showing reinforcement quiz ready toast (first batch)', { questionCount, currentView });
         setShowReinforcementQuizReadyToast(true);
         toastShownForQuizRef.current = firstBatchKey;
       }
@@ -1409,6 +1519,11 @@ const App: React.FC = () => {
   }, [reinforcementQuizQuestions?.length, currentView]);
   
   const handleCreateTargetedFlashcards = useCallback(async (weaknesses: string[]) => {
+    // Check payment status - don't generate flashcards if user hasn't paid
+    if (!hasValidPayment && !isAdminUser) {
+      setAppError('לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.');
+      return;
+    }
       setCurrentView('flashcards');
       setFlashcards(null);
       resetFlashcardsProgress();
@@ -1427,6 +1542,12 @@ const App: React.FC = () => {
   }, [documentContent]);
 
   const handleCreateTargetedQuiz = useCallback(async (weaknesses: string[]) => {
+      // Check payment status - don't generate quiz if user hasn't paid
+      if (!hasValidPayment && !isAdminUser) {
+        setAppError('לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.');
+        return;
+      }
+
       // Always navigate to reinforcement quiz view when clicking "צור בוחן חיזוק"
       setCurrentView('reinforcement-quiz');
       
@@ -1493,6 +1614,7 @@ const App: React.FC = () => {
               userEmail={currentUser?.email}
               userStats={userStats}
               userName={currentUser?.name || currentUser?.email?.split('@')[0]}
+              hasValidPayment={hasValidPayment || isAdminUser}
             />
             {generatedQuestions.length > 0 && (
               <GeneratedQuestionsView questions={generatedQuestions} />
@@ -1542,6 +1664,7 @@ const App: React.FC = () => {
             chatSession={chatSession}
             setChatSession={setChatSession}
             quizType="regular"
+            hasValidPayment={hasValidPayment || isAdminUser}
         />;
       case 'reinforcement-quiz':
         if (!currentUser?.email_confirmed) {
@@ -1586,6 +1709,7 @@ const App: React.FC = () => {
             chatSession={chatSession}
             setChatSession={setChatSession}
             quizType="reinforcement"
+            hasValidPayment={hasValidPayment || isAdminUser}
         />;
       case 'exam':
         if (!currentUser?.email_confirmed) {
@@ -1624,6 +1748,7 @@ const App: React.FC = () => {
             userName={currentUser?.name || currentUser?.email?.split('@')[0]}
             analysis={examAnalysis}
             isAnalyzing={isAnalyzingExam}
+            hasValidPayment={hasValidPayment || isAdminUser}
         />;
       case 'flashcards':
         if (!currentUser?.email_confirmed) {
@@ -1658,6 +1783,7 @@ const App: React.FC = () => {
             flashcardsProgress={flashcardsProgress}
             setFlashcardsProgress={setFlashcardsProgress}
             userName={currentUser?.name || currentUser?.email?.split('@')[0]}
+            hasValidPayment={hasValidPayment || isAdminUser}
         />;
       case 'chat':
         if (!currentUser?.email_confirmed) {
@@ -1685,6 +1811,7 @@ const App: React.FC = () => {
             setAppError={setAppError}
             chatSession={chatSession}
             setChatSession={setChatSession}
+            hasValidPayment={hasValidPayment || isAdminUser}
         />;
       case 'support':
         return <SupportView currentUser={currentUser} />;
@@ -1716,8 +1843,28 @@ const App: React.FC = () => {
     }
   };
 
-  // Show loading state while checking initial auth (prevents login screen flash after OAuth)
-  const location = useLocation();
+  // Handle redirect back from Stripe Checkout
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const paymentStatus = params.get('payment');
+    
+    if (paymentStatus === 'success' && currentUser) {
+      // Remove query param from URL
+      window.history.replaceState({}, '', window.location.pathname);
+      // Wait a moment for webhook to process, then recheck payment status
+      setTimeout(() => {
+        console.log('Rechecking payment status after redirect...');
+        checkUserPaymentStatus(currentUser.id);
+      }, 2000); // Wait 2 seconds for webhook to process
+      // Show success message
+      setAppError(null);
+    } else if (paymentStatus === 'canceled') {
+      // Remove query param from URL
+      window.history.replaceState({}, '', window.location.pathname);
+      setAppError('התשלום בוטל. ניתן לנסות שוב בכל עת.');
+    }
+  }, [location.search, currentUser]);
+
   
   if (isCheckingAuth) {
     return (
@@ -1758,6 +1905,7 @@ const App: React.FC = () => {
           isExamInProgress={isExamInProgress}
           openMainChat={handleOpenMainChat}
           isAdmin={isAdminUser}
+          hasValidPayment={hasValidPayment || isAdminUser}
         />
       )}
 
@@ -1769,6 +1917,22 @@ const App: React.FC = () => {
       )}
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Payment Banner - show when user is logged in but hasn't paid */}
+        {currentUser && !hasValidPayment && !isAdminUser && (
+          <PaymentBanner onPayClick={() => setIsPaymentModalOpen(true)} />
+        )}
+
+        {/* Payment Modal */}
+        {currentUser && (
+          <PaymentModal
+            isOpen={isPaymentModalOpen}
+            onClose={() => setIsPaymentModalOpen(false)}
+            userId={currentUser.id}
+            userEmail={currentUser.email || ''}
+            onPaymentSuccess={handlePaymentSuccess}
+          />
+        )}
+
         {!isExamInProgress && (
           <button 
             onClick={() => setIsMobileSidebarOpen(true)} 
@@ -1838,6 +2002,7 @@ const App: React.FC = () => {
                 chatSession={chatSession}
                 setChatSession={setChatSession}
                 userName={currentUser?.name || currentUser?.email?.split('@')[0]}
+                hasValidPayment={hasValidPayment || isAdminUser}
             />
         )}
       </main>

@@ -18,6 +18,7 @@ interface ExamViewProps {
   createTargetedQuiz: (weaknesses: string[]) => Promise<void>;
   analysis: AnalysisResult | null;
   isAnalyzing: boolean;
+  hasValidPayment?: boolean;
 }
 
 const getTodayKey = () => {
@@ -32,7 +33,7 @@ const formatTime = (seconds: number) => {
 };
 
 const ExamView: React.FC<ExamViewProps> = ({
-  userName, questions, isLoading, regenerateExam, setIsExamInProgress, setView, totalQuestions, documentContent, setAppError, onExamFinished, createTargetedFlashcards, createTargetedQuiz, analysis, isAnalyzing }) => {
+  userName, questions, isLoading, regenerateExam, setIsExamInProgress, setView, totalQuestions, documentContent, setAppError, onExamFinished, createTargetedFlashcards, createTargetedQuiz, analysis, isAnalyzing, hasValidPayment = true }) => {
   const [examState, setExamState] = useState<'intro' | 'running' | 'finished'>('intro');
   const [attemptsLeft, setAttemptsLeft] = useState(2);
   
@@ -300,6 +301,10 @@ const ExamView: React.FC<ExamViewProps> = ({
   
   const handleCreateTargetedFlashcards = async () => {
     if (!analysis?.weaknesses) return;
+    if (!hasValidPayment) {
+      setAppError('לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.');
+      return;
+    }
     setIsGeneratingTargeted('flashcards');
     await createTargetedFlashcards(analysis.weaknesses);
     setIsGeneratingTargeted(null);
@@ -307,6 +312,10 @@ const ExamView: React.FC<ExamViewProps> = ({
   
   const handleCreateTargetedQuiz = async () => {
     if (!analysis?.weaknesses) return;
+    if (!hasValidPayment) {
+      setAppError('לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.');
+      return;
+    }
     setIsGeneratingTargeted('quiz');
     await createTargetedQuiz(analysis.weaknesses);
     setIsGeneratingTargeted(null);
@@ -515,10 +524,20 @@ const ExamView: React.FC<ExamViewProps> = ({
                             </div>
                             {analysis.weaknesses && analysis.weaknesses.length > 0 && (
                                 <div className="lg:col-span-2 mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3">
-                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-2xl hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button 
+                                        onClick={handleCreateTargetedFlashcards} 
+                                        disabled={isGeneratingTargeted !== null || !hasValidPayment} 
+                                        className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-2xl hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-md"
+                                        title={!hasValidPayment ? 'תשלום נדרש' : ''}
+                                    >
                                         {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2 text-white" /> צור כרטיסיות ממוקדות</>}
                                     </button>
-                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button 
+                                        onClick={handleCreateTargetedQuiz} 
+                                        disabled={isGeneratingTargeted !== null || !hasValidPayment} 
+                                        className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-md"
+                                        title={!hasValidPayment ? 'תשלום נדרש' : ''}
+                                    >
                                         {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2 text-white" /> צור בוחן חיזוק</>}
                                     </button>
                                 </div>
@@ -656,6 +675,32 @@ const ExamView: React.FC<ExamViewProps> = ({
   }
   const progressInExam = questions ? ((currentQuestionIndex + 1) / totalQuestions) * 100 : 0;
 
+  // Show payment required overlay if payment is not valid
+  if (!hasValidPayment) {
+    return (
+      <div className="flex-grow p-4 md:p-8 overflow-y-auto relative">
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md text-center mx-4">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">תשלום נדרש</h3>
+            <p className="text-slate-600 mb-6">
+              לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.
+            </p>
+            <button
+              onClick={() => setView('home')}
+              className="px-6 py-3 bg-sky-600 text-white font-semibold rounded-xl hover:bg-sky-700 transition-colors"
+            >
+              חזור לדף הבית
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-grow p-4 md:p-8 overflow-y-auto">

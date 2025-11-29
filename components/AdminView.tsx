@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AdminUser, UserDetails, PricingQuote } from '../types';
-import { getAllUsers, getUserDetails, deleteUser, updateUser, resetUserProgress } from '../services/adminService';
+import { getAllUsers, getUserDetails, deleteUser, updateUser, resetUserProgress, togglePaymentBypass } from '../services/adminService';
 import { CloseIcon, UserIcon, TrashIcon, PencilIcon, SearchIcon, DocumentIcon, PlusIcon } from './icons';
 import QuoteList from './QuoteList';
 import QuoteForm from './QuoteForm';
@@ -287,6 +287,7 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">תאריך הרשמה</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">כניסה אחרונה</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">סטטוס</th>
+                  <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">גישה לפלטפורמה</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">פעולות</th>
                 </tr>
               </thead>
@@ -310,6 +311,28 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                       ) : (
                         <span className="text-amber-600 font-semibold">לא מאומת</span>
                       )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <button
+                        onClick={async () => {
+                          const newBypassStatus = !user.payment_bypassed;
+                          const { error } = await togglePaymentBypass(user.id, newBypassStatus);
+                          if (error) {
+                            setError(`שגיאה בעדכון גישה: ${error.message}`);
+                          } else {
+                            // Reload users to reflect the change
+                            loadUsers();
+                          }
+                        }}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                          user.payment_bypassed
+                            ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                            : 'bg-red-100 text-red-800 hover:bg-red-200'
+                        }`}
+                        title={user.payment_bypassed ? 'לחץ לסגירת גישה' : 'לחץ לפתיחת גישה'}
+                      >
+                        {user.payment_bypassed ? 'גישה פתוחה' : 'גישה סגורה'}
+                      </button>
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2 justify-end">

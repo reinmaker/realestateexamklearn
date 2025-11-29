@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@google/genai": "^1.28.0",
+    "@stripe/react-stripe-js": "^5.4.1",
+    "@stripe/stripe-js": "^8.5.3",
     "@supabase/supabase-js": "^2.78.0",
     "dotenv": "^17.2.3",
     "html2canvas": "^1.4.1",

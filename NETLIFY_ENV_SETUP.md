@@ -8,6 +8,7 @@ For this Vite application to work correctly, you need to set the following envir
 - `VITE_OPENAI_API_KEY` - Your OpenAI API key
 - `VITE_GEMINI_API_KEY` - Your Gemini API key
 - `VITE_GOOGLE_CLOUD_TTS_API_KEY` - Your Google Cloud TTS API key (optional)
+- `VITE_STRIPE_PUBLISHABLE_KEY` - Your Stripe publishable key (starts with `pk_`) for payment processing
 
 ## How to Set Environment Variables in Netlify
 
@@ -41,6 +42,7 @@ netlify link
 netlify env:set VITE_OPENAI_API_KEY "your-openai-key"
 netlify env:set VITE_GEMINI_API_KEY "your-gemini-key"
 netlify env:set VITE_GOOGLE_CLOUD_TTS_API_KEY "your-tts-key"
+netlify env:set VITE_STRIPE_PUBLISHABLE_KEY "pk_live_..." # Use pk_live_ for production, pk_test_ for testing
 ```
 
 ## Important Notes

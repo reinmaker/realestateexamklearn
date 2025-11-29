@@ -14,20 +14,22 @@ interface SidebarProps {
   isExamInProgress: boolean;
   openMainChat: () => void;
   isAdmin: boolean;
+  hasValidPayment: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMobileOpen, onMobileClose, currentUser, onLogout, isExamInProgress, openMainChat, isAdmin }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMobileOpen, onMobileClose, currentUser, onLogout, isExamInProgress, openMainChat, isAdmin, hasValidPayment }) => {
   const emailConfirmed = currentUser?.email_confirmed ?? false;
   
+  // Payment is required for quiz, flashcards, exam, and chat (not for home or support)
   const learningTools = [
     { id: 'home', label: 'בית', icon: HomeIcon, disabled: false },
-    { id: 'quiz', label: 'בוחן אימון', icon: QuizIcon, disabled: !emailConfirmed },
-    { id: 'reinforcement-quiz', label: 'בוחן חיזוק', icon: AIIcon, disabled: !emailConfirmed },
-    { id: 'flashcards', label: 'כרטיסיות', icon: FlashcardsIcon, disabled: !emailConfirmed },
-    { id: 'chat', label: 'המורה הפרטי שלך', icon: ChatIcon, disabled: !emailConfirmed },
+    { id: 'quiz', label: 'בוחן אימון', icon: QuizIcon, disabled: !emailConfirmed || !hasValidPayment },
+    { id: 'reinforcement-quiz', label: 'בוחן חיזוק', icon: AIIcon, disabled: !emailConfirmed || !hasValidPayment },
+    { id: 'flashcards', label: 'כרטיסיות', icon: FlashcardsIcon, disabled: !emailConfirmed || !hasValidPayment },
+    { id: 'chat', label: 'המורה הפרטי שלך', icon: ChatIcon, disabled: !emailConfirmed || !hasValidPayment },
   ];
 
-  const examTool = { id: 'exam', label: 'מבחן תיווך', icon: ExamIcon, disabled: !emailConfirmed };
+  const examTool = { id: 'exam', label: 'מבחן תיווך', icon: ExamIcon, disabled: !emailConfirmed || !hasValidPayment };
 
   return (
     <aside className={`w-64 bg-slate-700 border-l border-slate-600 p-6 flex flex-col h-screen overflow-y-auto
@@ -85,7 +87,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
                     ? 'border-2 border-sky-500 text-sky-500'
                     : 'text-slate-300 hover:bg-slate-600 hover:text-white'
                 } ${isExamInProgress || item.disabled ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                title={item.disabled ? 'אימות אימייל נדרש' : ''}
+                title={item.disabled ? (!emailConfirmed ? 'אימות אימייל נדרש' : !hasValidPayment ? 'תשלום נדרש' : '') : ''}
               >
                 <item.icon className={`h-5 w-5 ml-3 ${currentView === item.id ? 'text-sky-500' : ''}`} />
                 {item.label}
@@ -105,7 +107,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
                         ? 'bg-gradient-to-r from-purple-500 to-purple-700 text-white font-bold border-2 border-purple-400 shadow-lg shadow-purple-500/50'
                         : 'text-slate-300 hover:bg-slate-600 hover:text-white border-2 border-purple-500'
                     } ${examTool.disabled ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                    title={examTool.disabled ? 'אימות אימייל נדרש' : ''}
+                    title={examTool.disabled ? (!emailConfirmed ? 'אימות אימייל נדרש' : !hasValidPayment ? 'תשלום נדרש' : '') : ''}
                 >
                     <examTool.icon className={`h-5 w-5 ml-3 ${currentView === examTool.id ? 'text-white' : ''}`} />
                     {examTool.label}
@@ -113,7 +115,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
             </li>
           </ul>
         </div>
-        {isAdmin && (
+        {(() => {
+          console.log('Sidebar: isAdmin prop value:', isAdmin, 'currentUser:', currentUser?.email);
+          return isAdmin;
+        })() && (
           <div className="mt-6 pt-6 border-t border-slate-600">
             <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">ניהול</p>
             <ul>
@@ -154,7 +159,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
             תמיכה
           </button>
           <button
-            onClick={onLogout}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('Logout button clicked in Sidebar');
+              onLogout();
+            }}
             disabled={isExamInProgress}
             className="w-full flex items-center mt-2 px-4 py-2.5 text-sm font-medium rounded-xl text-slate-300 hover:bg-slate-600 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >

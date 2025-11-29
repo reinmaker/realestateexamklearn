@@ -17,6 +17,7 @@ interface HomeViewProps {
   userEmail?: string;
   userStats?: UserStats | null; // Add DB stats
   userName?: string; // User's name for personalization
+  hasValidPayment?: boolean;
 }
 
 const StatCard: React.FC<{ title: string; value: string | number; description: string }> = ({ title, value, description }) => (
@@ -208,7 +209,7 @@ const ActionCard: React.FC<{ title: string; description: string; icon: React.Rea
 );
 
 
-const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, analysis, isAnalyzing, createTargetedFlashcards, createTargetedQuiz, emailConfirmed = true, userEmail, userStats, userName }) => {
+const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, analysis, isAnalyzing, createTargetedFlashcards, createTargetedQuiz, emailConfirmed = true, userEmail, userStats, userName, hasValidPayment = true }) => {
   const allHistory = useMemo(() => [...quizHistory, ...examHistory], [quizHistory, examHistory]);
   const [isGeneratingTargeted, setIsGeneratingTargeted] = useState<'flashcards' | 'quiz' | null>(null);
   const [isResendingEmail, setIsResendingEmail] = useState(false);
@@ -495,10 +496,20 @@ const HomeView: React.FC<HomeViewProps> = ({ quizHistory, examHistory, setView, 
                             </div>
                             {analysis.weaknesses && analysis.weaknesses.length > 0 && (
                                 <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3 animate-fade-in">
-                                    <button onClick={handleCreateTargetedFlashcards} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-2xl hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button 
+                                        onClick={handleCreateTargetedFlashcards} 
+                                        disabled={isGeneratingTargeted !== null || !hasValidPayment} 
+                                        className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-amber-500 to-amber-600 text-white text-sm font-semibold rounded-2xl hover:from-amber-600 hover:to-amber-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-md"
+                                        title={!hasValidPayment ? 'תשלום נדרש' : ''}
+                                    >
                                         {isGeneratingTargeted === 'flashcards' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><FlashcardsIcon className="h-5 w-5 ml-2 text-white" /> צור כרטיסיות ממוקדות</>}
                                     </button>
-                                    <button onClick={handleCreateTargetedQuiz} disabled={isGeneratingTargeted !== null} className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-wait disabled:hover:shadow-md">
+                                    <button 
+                                        onClick={handleCreateTargetedQuiz} 
+                                        disabled={isGeneratingTargeted !== null || !hasValidPayment} 
+                                        className="flex-1 flex items-center justify-center px-6 py-3 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-sm font-semibold rounded-2xl hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-md"
+                                        title={!hasValidPayment ? 'תשלום נדרש' : ''}
+                                    >
                                         {isGeneratingTargeted === 'quiz' ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><QuizIcon className="h-5 w-5 ml-2 text-white" /> צור בוחן חיזוק</>}
                                     </button>
                                 </div>

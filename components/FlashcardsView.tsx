@@ -46,10 +46,11 @@ interface FlashcardsViewProps {
   totalFlashcards: number;
   flashcardsProgress: FlashcardsProgress;
   setFlashcardsProgress: React.Dispatch<React.SetStateAction<FlashcardsProgress>>;
+  hasValidPayment?: boolean;
 }
 
 const FlashcardsView: React.FC<FlashcardsViewProps> = ({
-  userName, documentContent, setAppError, openSideChat, flashcards, isLoading, regenerateFlashcards, totalFlashcards, flashcardsProgress, setFlashcardsProgress }) => {
+  userName, documentContent, setAppError, openSideChat, flashcards, isLoading, regenerateFlashcards, totalFlashcards, flashcardsProgress, setFlashcardsProgress, hasValidPayment = true }) => {
   const { currentIndex, userAnswers } = flashcardsProgress;
   
   const [isFlipped, setIsFlipped] = useState(false);
@@ -361,6 +362,33 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
     setFlashcardsProgress({ currentIndex: 0, userAnswers: [] });
     regenerateFlashcards();
   };
+
+  // Show payment required overlay if payment is not valid
+  if (!hasValidPayment) {
+    return (
+      <div className="flex-grow p-4 md:p-8 overflow-y-auto relative">
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md text-center mx-4">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">תשלום נדרש</h3>
+            <p className="text-slate-600 mb-6">
+              לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.
+            </p>
+            <button
+              onClick={() => window.location.href = '/'}
+              className="px-6 py-3 bg-sky-600 text-white font-semibold rounded-xl hover:bg-sky-700 transition-colors"
+            >
+              חזור לדף הבית
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-grow p-4 md:p-8 flex flex-col items-center justify-center">

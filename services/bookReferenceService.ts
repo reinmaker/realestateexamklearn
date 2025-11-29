@@ -45,113 +45,56 @@ async function downloadPdfFilePart1(): Promise<File | Blob> {
       // Import Supabase client
       const { supabase } = await import('./authService');
       
-      // First, try to generate a signed URL (works even if bucket is private)
-      // With the new policy, authenticated users can access the bucket directly
-      let signedUrlData: { signedUrl: string } | null = null;
-      let signedUrlError: any = null;
+      // Direct download with timeout
+      const downloadPromise = supabase.storage
+        .from('Materials')
+        .download('part1.pdf');
       
-      try {
-        // Try direct signed URL generation first (for authenticated users with new policy)
-        const result = await supabase.storage
-          .from('Materials')
-          .createSignedUrl('part1.pdf', 3600); // 1 hour expiry
+      // Add timeout (30 seconds)
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Download timeout after 30 seconds')), 30000)
+      );
+      
+      const { data, error } = await Promise.race([downloadPromise, timeoutPromise]) as any;
+      
+      if (error) {
+        const errorStatus = (error as any)?.status || (error as any)?.statusCode;
+        const errorMessage = error.message || '';
+        const errorCode = error.error || '';
         
-        signedUrlData = result.data;
-        signedUrlError = result.error;
+        // Check if it's a "not found" error - if so, throw immediately
+        const isNotFoundError = errorMessage?.includes('Object not found') || 
+                               errorMessage?.includes('not found') ||
+                               errorCode === '404' ||
+                               errorStatus === 404 ||
+                               errorStatus === 400; // 400 Bad Request often means not found
         
-        // If direct signed URL generation failed, try Edge Function as fallback
-        if (signedUrlError || !signedUrlData?.signedUrl) {
-          try {
-            const { data: edgeFunctionData, error: edgeFunctionError } = await supabase.functions.invoke('get-pdf-signed-url', {
-              body: { filename: 'part1.pdf', expiresIn: 3600 }
-            });
-            
-            if (!edgeFunctionError && edgeFunctionData?.signedUrl) {
-              signedUrlData = { signedUrl: edgeFunctionData.signedUrl };
-              signedUrlError = null;
-            } else {
-              console.warn('Edge Function also failed:', edgeFunctionError);
-            }
-          } catch (edgeErr) {
-            console.warn('Edge Function invocation failed:', edgeErr);
-          }
+        if (isNotFoundError) {
+          // If file doesn't exist, throw immediately
+          throw new Error('PDF file not found in storage');
         }
-      } catch (err) {
-        signedUrlError = err;
-        console.warn('Failed to generate signed URL:', err);
+        
+        console.error('Supabase storage download failed for part 1:', {
+          error,
+          status: errorStatus,
+          code: errorCode,
+          message: errorMessage
+        });
+        
+        throw new Error(`Supabase storage download failed for part 1: ${errorMessage || errorCode || errorStatus || 'N/A'})`);
       }
       
-      // If signed URL generation failed, try direct download
-      if (signedUrlError || !signedUrlData?.signedUrl) {
-        console.warn('Signed URL generation failed, trying direct download:', signedUrlError);
-        
-        // Fallback to direct download with timeout
-        const downloadPromise = supabase.storage
-          .from('Materials')
-          .download('part1.pdf');
-        
-        // Add timeout (30 seconds)
-        const timeoutPromise = new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Download timeout after 30 seconds')), 30000)
-        );
-        
-        const { data, error } = await Promise.race([downloadPromise, timeoutPromise]) as any;
-        
-        if (error) {
-          const errorStatus = (error as any)?.status || (error as any)?.statusCode;
-          const errorMessage = error.message || '';
-          const errorCode = error.error || '';
-          
-          console.error('Supabase storage download failed for part 1:', {
-            error,
-            status: errorStatus,
-            code: errorCode,
-            message: errorMessage
-          });
-          
-          throw new Error(`Failed to download PDF part 1 from Supabase storage: ${errorMessage || errorCode || 'Unknown error'} (Status: ${errorStatus || 'N/A'})`);
-        }
-        
-        if (!data) {
-          throw new Error('Supabase storage returned no data for part 1');
-        }
-        
-        const pdfBlob = data;
-        
-        // Cache the result
-        cachedPdfFile = pdfBlob;
-        pdfDownloadInProgress = null;
-        
-        return pdfBlob;
+      if (!data) {
+        throw new Error('Supabase storage returned no data for part 1');
       }
       
-      // Use signed URL to download with timeout
-      if (signedUrlData?.signedUrl) {
-        const fetchPromise = fetch(signedUrlData.signedUrl);
-        const timeoutPromise = new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Fetch timeout after 30 seconds')), 30000)
-        );
-        
-        const response = await Promise.race([fetchPromise, timeoutPromise]);
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch PDF from signed URL: ${response.status} ${response.statusText}`);
-        }
-        
-        const pdfBlob = await response.blob();
-        
-        if (!pdfBlob || pdfBlob.size === 0) {
-          throw new Error('Downloaded PDF is empty');
-        }
-        
-        // Cache the result
-        cachedPdfFile = pdfBlob;
-        pdfDownloadInProgress = null;
-        
-        return pdfBlob;
-      }
+      const pdfBlob = data;
       
-      throw new Error('Failed to generate signed URL for PDF part 1');
+      // Cache the result
+      cachedPdfFile = pdfBlob;
+      pdfDownloadInProgress = null;
+      
+      return pdfBlob;
     } catch (error) {
       pdfDownloadInProgress = null;
       throw error instanceof Error ? error : new Error(String(error));
@@ -181,125 +124,56 @@ async function downloadPdfFilePart2(): Promise<File | Blob> {
       // Import Supabase client
       const { supabase } = await import('./authService');
       
-      // First, try to generate a signed URL (works even if bucket is private)
-      // With the new policy, authenticated users can access the bucket directly
-      let signedUrlData: { signedUrl: string } | null = null;
-      let signedUrlError: any = null;
+      // Direct download with timeout
+      const downloadPromise = supabase.storage
+        .from('Materials')
+        .download('part2.pdf');
       
-      try {
-        // Try direct signed URL generation first (for authenticated users with new policy)
-        const result = await supabase.storage
-          .from('Materials')
-          .createSignedUrl('part2.pdf', 3600); // 1 hour expiry
+      // Add timeout (30 seconds)
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Download timeout after 30 seconds')), 30000)
+      );
+      
+      const { data, error } = await Promise.race([downloadPromise, timeoutPromise]) as any;
+      
+      if (error) {
+        const errorStatus = (error as any)?.status || (error as any)?.statusCode;
+        const errorMessage = error.message || '';
+        const errorCode = error.error || '';
         
-        signedUrlData = result.data;
-        signedUrlError = result.error;
+        // Check if it's a "not found" error - if so, throw immediately
+        const isNotFoundError = errorMessage?.includes('Object not found') || 
+                               errorMessage?.includes('not found') ||
+                               errorCode === '404' ||
+                               errorStatus === 404 ||
+                               errorStatus === 400; // 400 Bad Request often means not found
         
-        // If direct signed URL generation failed, try Edge Function as fallback
-        if (signedUrlError || !signedUrlData?.signedUrl) {
-          try {
-            const { data: edgeFunctionData, error: edgeFunctionError } = await supabase.functions.invoke('get-pdf-signed-url', {
-              body: { filename: 'part2.pdf', expiresIn: 3600 }
-            });
-            
-            if (!edgeFunctionError && edgeFunctionData?.signedUrl) {
-              signedUrlData = { signedUrl: edgeFunctionData.signedUrl };
-              signedUrlError = null;
-            } else {
-              console.warn('Edge Function also failed:', edgeFunctionError);
-            }
-          } catch (edgeErr) {
-            console.warn('Edge Function invocation failed:', edgeErr);
-          }
+        if (isNotFoundError) {
+          // If file doesn't exist, throw immediately
+          throw new Error('PDF file not found in storage');
         }
-      } catch (err) {
-        signedUrlError = err;
-        console.warn('Failed to generate signed URL:', err);
+        
+        console.error('Supabase storage download failed for part 2:', {
+          error,
+          status: errorStatus,
+          code: errorCode,
+          message: errorMessage
+        });
+        
+        throw new Error(`Supabase storage download failed for part 2: ${errorMessage || errorCode || errorStatus || 'N/A'})`);
       }
       
-      // If signed URL generation failed, try direct download
-      if (signedUrlError || !signedUrlData?.signedUrl) {
-        console.warn('Signed URL generation failed, trying direct download:', signedUrlError);
-        
-        // Fallback to direct download with timeout
-        const downloadPromise = supabase.storage
-          .from('Materials')
-          .download('part2.pdf');
-        
-        // Add timeout (30 seconds)
-        const timeoutPromise = new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Download timeout after 30 seconds')), 30000)
-        );
-        
-        const { data, error } = await Promise.race([downloadPromise, timeoutPromise]) as any;
-        
-        if (error) {
-          const errorStatus = (error as any)?.status || (error as any)?.statusCode;
-          const errorMessage = error.message || '';
-          const errorCode = error.error || '';
-          
-          // Check if it's a "not found" error - if so, throw immediately
-          const isNotFoundError = errorMessage?.includes('Object not found') || 
-                                 errorMessage?.includes('not found') ||
-                                 errorCode === '404' ||
-                                 errorStatus === 404 ||
-                                 errorStatus === 400; // 400 Bad Request often means not found
-          
-          if (isNotFoundError) {
-            // If file doesn't exist, throw immediately
-            throw new Error('PDF file not found in storage');
-          }
-          
-          console.error('Supabase storage download failed for part 2:', {
-            error,
-            status: errorStatus,
-            code: errorCode,
-            message: errorMessage
-          });
-          
-          throw new Error(`Failed to download PDF part 2 from Supabase storage: ${errorMessage || errorCode || 'Unknown error'} (Status: ${errorStatus || 'N/A'})`);
-        }
-        
-        if (!data) {
-          throw new Error('Supabase storage returned no data for part 2');
-        }
-        
-        const pdfBlob = data;
-        
-        // Cache the result
-        cachedPdfFilePart2 = pdfBlob;
-        pdfDownloadInProgressPart2 = null;
-        
-        return pdfBlob;
+      if (!data) {
+        throw new Error('Supabase storage returned no data for part 2');
       }
       
-      // Use signed URL to download with timeout
-      if (signedUrlData?.signedUrl) {
-        const fetchPromise = fetch(signedUrlData.signedUrl);
-        const timeoutPromise = new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Fetch timeout after 30 seconds')), 30000)
-        );
-        
-        const response = await Promise.race([fetchPromise, timeoutPromise]);
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch PDF from signed URL: ${response.status} ${response.statusText}`);
-        }
-        
-        const pdfBlob = await response.blob();
-        
-        if (!pdfBlob || pdfBlob.size === 0) {
-          throw new Error('Downloaded PDF is empty');
-        }
-        
-        // Cache the result
-        cachedPdfFilePart2 = pdfBlob;
-        pdfDownloadInProgressPart2 = null;
-        
-        return pdfBlob;
-      }
+      const pdfBlob = data;
       
-      throw new Error('Failed to generate signed URL for PDF part 2');
+      // Cache the result
+      cachedPdfFilePart2 = pdfBlob;
+      pdfDownloadInProgressPart2 = null;
+      
+      return pdfBlob;
     } catch (error) {
       pdfDownloadInProgressPart2 = null;
       throw error instanceof Error ? error : new Error(String(error));

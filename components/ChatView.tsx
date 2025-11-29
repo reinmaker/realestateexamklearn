@@ -8,9 +8,10 @@ interface ChatViewProps {
   setAppError: (error: string | null) => void;
   chatSession: ChatSession | null;
   setChatSession: React.Dispatch<React.SetStateAction<ChatSession | null>>;
+  hasValidPayment?: boolean;
 }
 
-const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSession }) => {
+const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSession, hasValidPayment = true }) => {
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -28,8 +29,11 @@ const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSe
   useEffect(() => {
     if (!hasInitializedRef.current && (!chatSession || chatSession.history.length === 0)) {
       hasInitializedRef.current = true;
-      // Set a welcome message immediately
-      const welcomeMessage = 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
+      // Set a welcome message immediately - include payment notice if needed
+      let welcomeMessage = 'היי, אני דניאל, המורה הפרטי שלך. במה אוכל לעזור?';
+      if (!hasValidPayment) {
+        welcomeMessage = 'היי, אני דניאל, המורה הפרטי שלך. לצערי, אני לא יכול לענות על שאלות עד שתשלים את התשלום לפלטפורמה. אנא השלם את התשלום כדי להמשיך.';
+      }
       if (!chatSession) {
         // If chatSession is null, we need to create it first
         // This will be handled by App.tsx, but we can set a temporary message
@@ -42,7 +46,7 @@ const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSe
         setChatSession(prev => prev ? { ...prev, history: [{ role: 'model', text: welcomeMessage }] } : null);
       }
     }
-  }, [chatSession, setChatSession]);
+  }, [chatSession, setChatSession, hasValidPayment]);
   
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,6 +101,33 @@ const ChatView: React.FC<ChatViewProps> = ({ setAppError, chatSession, setChatSe
       setIsLoading(false);
     }
   };
+
+  // Show payment required overlay if payment is not valid
+  if (!hasValidPayment) {
+    return (
+      <div className="flex-grow p-4 md:p-8 overflow-y-auto relative">
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md text-center mx-4">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">תשלום נדרש</h3>
+            <p className="text-slate-600 mb-6">
+              לשימוש בפלטפורמה יש להשלים תשלום. אנא השלם את התשלום כדי להמשיך.
+            </p>
+            <button
+              onClick={() => window.location.href = '/'}
+              className="px-6 py-3 bg-sky-600 text-white font-semibold rounded-xl hover:bg-sky-700 transition-colors"
+            >
+              חזור לדף הבית
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-grow flex flex-col p-4 md:p-8 h-full overflow-hidden">
