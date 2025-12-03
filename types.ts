@@ -80,6 +80,9 @@ export interface AdminUser {
   last_sign_in_at: string | null;
   is_admin: boolean;
   payment_bypassed?: boolean;
+  hasValidPayment?: boolean;
+  paymentStatus?: 'paid' | 'not_paid' | 'expired' | 'pending' | 'bypassed';
+  paymentExpiresAt?: string | null;
 }
 
 export interface UserDetails {

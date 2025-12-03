@@ -100,25 +100,49 @@ export function isPaymentValid(payment: PaymentRecord | null): boolean {
 
 /**
  * Check if user has payment bypass (admin granted access)
+ * Returns: true if bypassed, false if explicitly revoked, null if not set
  */
-async function checkPaymentBypass(userId: string): Promise<boolean> {
+async function checkPaymentBypass(userId: string): Promise<boolean | null> {
   try {
     // Check via RPC function
     const { data: bypassData, error: bypassError } = await supabase.rpc('get_user_payment_bypass', { user_id: userId });
-    if (!bypassError && bypassData === true) {
-      return true;
+    console.log(`[checkPaymentBypass] RPC result for user ${userId}:`, { bypassData, bypassError, type: typeof bypassData });
+    
+    if (!bypassError && bypassData !== null && bypassData !== undefined) {
+      // If explicitly false, return false (revoked)
+      // If explicitly true, return true (granted)
+      if (bypassData === false || bypassData === 'false') {
+        console.log(`[checkPaymentBypass] User ${userId} bypass explicitly revoked (false)`);
+        return false; // Explicitly revoked
+      }
+      if (bypassData === true || bypassData === 'true') {
+        console.log(`[checkPaymentBypass] User ${userId} bypass explicitly granted (true)`);
+        return true; // Explicitly granted
+      }
     }
     
-    // Fallback: check current user's metadata
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user?.id === userId && user?.user_metadata?.payment_bypassed === true) {
-      return true;
+    // If RPC returned null/undefined, check if there was an error
+    if (bypassError) {
+      console.error(`[checkPaymentBypass] RPC error for user ${userId}:`, bypassError);
+      // Fallback: check current user's metadata (only works for own user)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.id === userId) {
+        const metadataBypass = user?.user_metadata?.payment_bypassed;
+        console.log(`[checkPaymentBypass] Fallback metadata check for user ${userId}:`, metadataBypass);
+        if (metadataBypass === false || metadataBypass === 'false') {
+          return false; // Explicitly revoked
+        }
+        if (metadataBypass === true || metadataBypass === 'true') {
+          return true; // Explicitly granted
+        }
+      }
     }
     
-    return false;
+    console.log(`[checkPaymentBypass] User ${userId} bypass not set (null)`);
+    return null; // Not set
   } catch (error) {
     console.error('Exception checking payment bypass:', error);
-    return false;
+    return null;
   }
 }
 
@@ -128,10 +152,16 @@ async function checkPaymentBypass(userId: string): Promise<boolean> {
 export async function checkPaymentStatus(userId: string): Promise<{ hasValidPayment: boolean; payment: PaymentRecord | null; error: Error | null }> {
   try {
     // First check if user has payment bypass (admin granted access)
-    const hasBypass = await checkPaymentBypass(userId);
-    if (hasBypass) {
+    const bypassStatus = await checkPaymentBypass(userId);
+    console.log(`[checkPaymentStatus] User ${userId} bypass status:`, bypassStatus);
+    if (bypassStatus === true) {
       console.log(`User ${userId} has payment bypass - granting access`);
       return { hasValidPayment: true, payment: null, error: null };
+    }
+    // If bypass is explicitly false (revoked), deny access even if they have payment
+    if (bypassStatus === false) {
+      console.log(`User ${userId} has payment bypass explicitly revoked - denying access`);
+      return { hasValidPayment: false, payment: null, error: null };
     }
 
     // Get user's latest payment (don't use .single() to avoid errors when no rows exist)

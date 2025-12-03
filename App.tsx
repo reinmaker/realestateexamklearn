@@ -956,14 +956,12 @@ const App: React.FC = () => {
   }, [regenerateFlashcards, regenerateQuiz, documentContent]);
 
   const handleLogout = async () => {
-    console.log('Logout button clicked');
     try {
       const { error } = await authSignOut();
       if (error) {
         console.error('Logout error:', error);
         setAppError(error.message || 'שגיאה בהתנתקות');
       } else {
-        console.log('Logout successful');
         // Explicitly reset state in case auth listener doesn't fire immediately
         setCurrentUser(null);
         setCurrentView('home');
@@ -996,7 +994,6 @@ const App: React.FC = () => {
         lastCheckedUserIdRef.current = currentUser.id;
         try {
           const adminStatus = await isAdmin(currentUser.id);
-          console.log('Admin status check result:', { userId: currentUser.id, email: currentUser.email, isAdmin: adminStatus });
           setIsAdminUser(adminStatus);
         } catch (error) {
           console.error('Error checking admin status:', error);
@@ -1021,11 +1018,25 @@ const App: React.FC = () => {
       } else {
         // Check payment status for regular users
         checkUserPaymentStatus(currentUser.id);
+        
+        // Periodically re-check payment status (every 10 seconds) to catch revocations immediately
+        const paymentCheckInterval = setInterval(() => {
+          checkUserPaymentStatus(currentUser.id);
+        }, 10000); // Check every 10 seconds
+        
+        return () => clearInterval(paymentCheckInterval);
       }
     } else {
       setHasValidPayment(false);
     }
   }, [currentUser, isAdminUser]);
+
+  // Also check payment status on route changes to catch revocations immediately
+  useEffect(() => {
+    if (currentUser && !isAdminUser) {
+      checkUserPaymentStatus(currentUser.id);
+    }
+  }, [location.pathname, currentUser, isAdminUser]);
 
   useEffect(() => {
     let isInitialized = false;
@@ -1256,12 +1267,10 @@ const App: React.FC = () => {
     setIsCheckingPayment(true);
     try {
       const { hasValidPayment: isValid, payment, error } = await checkPaymentStatus(userId);
-      console.log('Payment check result:', { userId, isValid, payment, error });
       if (error) {
         console.error('Error checking payment status:', error);
         setHasValidPayment(false);
       } else {
-        console.log('Setting hasValidPayment to:', isValid);
         setHasValidPayment(isValid);
       }
     } catch (error) {
@@ -1853,7 +1862,6 @@ const App: React.FC = () => {
       window.history.replaceState({}, '', window.location.pathname);
       // Wait a moment for webhook to process, then recheck payment status
       setTimeout(() => {
-        console.log('Rechecking payment status after redirect...');
         checkUserPaymentStatus(currentUser.id);
       }, 2000); // Wait 2 seconds for webhook to process
       // Show success message

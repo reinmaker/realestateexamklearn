@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { checkPaymentStatus } from '../services/paymentService';
 import { AdminUser, UserDetails, PricingQuote } from '../types';
 import { getAllUsers, getUserDetails, deleteUser, updateUser, resetUserProgress, togglePaymentBypass } from '../services/adminService';
 import { CloseIcon, UserIcon, TrashIcon, PencilIcon, SearchIcon, DocumentIcon, PlusIcon } from './icons';
@@ -13,6 +14,7 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState<'users' | 'quotes'>('users');
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<UserDetails | null>(null);
+  const [selectedUserPaymentStatus, setSelectedUserPaymentStatus] = useState<{ hasValidPayment: boolean; payment: any; status: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -47,6 +49,13 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
       setError(detailsError.message || 'שגיאה בטעינת פרטי המשתמש');
     } else if (details) {
       setSelectedUser(details);
+      // Fetch payment status for the selected user
+      const { hasValidPayment, payment } = await checkPaymentStatus(userId);
+      setSelectedUserPaymentStatus({
+        hasValidPayment,
+        payment,
+        status: hasValidPayment ? 'paid' : payment?.status || 'not_paid'
+      });
     }
   };
 
@@ -287,6 +296,7 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">תאריך הרשמה</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">כניסה אחרונה</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">סטטוס</th>
+                  <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">סטטוס תשלום</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">גישה לפלטפורמה</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">פעולות</th>
                 </tr>
@@ -312,27 +322,79 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                         <span className="text-amber-600 font-semibold">לא מאומת</span>
                       )}
                     </td>
+                    <td className="py-3 px-4 text-sm">
+                      {user.paymentStatus === 'paid' ? (
+                        <div className="flex flex-col">
+                          <span className="text-green-600 font-semibold">שולם</span>
+                          {user.paymentExpiresAt && (
+                            <span className="text-xs text-slate-500 mt-1">
+                              תפוגה: {new Date(user.paymentExpiresAt).toLocaleDateString('he-IL', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                            </span>
+                          )}
+                        </div>
+                      ) : user.paymentStatus === 'expired' ? (
+                        <div className="flex flex-col">
+                          <span className="text-red-600 font-semibold">פג תוקף</span>
+                          {user.paymentExpiresAt && (
+                            <span className="text-xs text-slate-500 mt-1">
+                              פג ב: {new Date(user.paymentExpiresAt).toLocaleDateString('he-IL', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                            </span>
+                          )}
+                        </div>
+                      ) : user.paymentStatus === 'pending' ? (
+                        <span className="text-amber-600 font-semibold">ממתין לתשלום</span>
+                      ) : user.paymentStatus === 'bypassed' ? (
+                        <span className="text-blue-600 font-semibold">גישה פתוחה (מנהל)</span>
+                      ) : (
+                        <span className="text-red-600 font-semibold">לא שולם</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4">
-                      <button
-                        onClick={async () => {
-                          const newBypassStatus = !user.payment_bypassed;
-                          const { error } = await togglePaymentBypass(user.id, newBypassStatus);
-                          if (error) {
-                            setError(`שגיאה בעדכון גישה: ${error.message}`);
-                          } else {
-                            // Reload users to reflect the change
-                            loadUsers();
-                          }
-                        }}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                          user.payment_bypassed
-                            ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                            : 'bg-red-100 text-red-800 hover:bg-red-200'
-                        }`}
-                        title={user.payment_bypassed ? 'לחץ לסגירת גישה' : 'לחץ לפתיחת גישה'}
-                      >
-                        {user.payment_bypassed ? 'גישה פתוחה' : 'גישה סגורה'}
-                      </button>
+                      {user.is_admin ? (
+                        <div className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-green-100 text-green-800 cursor-default" title="גישה דרך הרשאות מנהל">
+                          גישה פתוחה (מנהל)
+                        </div>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            // Determine if user currently has access based on hasValidPayment
+                            // This reflects the actual access status from checkPaymentStatus
+                            const hasAccess = user.hasValidPayment || false;
+                            
+                            console.log(`[AdminView] Toggling access for user ${user.id} (${user.email}):`, {
+                              hasAccess,
+                              paymentStatus: user.paymentStatus,
+                              payment_bypassed: user.payment_bypassed,
+                              hasValidPayment: user.hasValidPayment
+                            });
+                            
+                            // If they have access, revoke it by setting bypass to false
+                            // If they don't have access, grant it by setting bypass to true
+                            const newBypassStatus = !hasAccess;
+                            console.log(`[AdminView] Setting payment_bypassed to:`, newBypassStatus);
+                            
+                            const { error } = await togglePaymentBypass(user.id, newBypassStatus);
+                            if (error) {
+                              console.error(`[AdminView] Error toggling bypass:`, error);
+                              setError(`שגיאה בעדכון גישה: ${error.message}`);
+                            } else {
+                              console.log(`[AdminView] Successfully toggled bypass, reloading users...`);
+                              // Wait a moment for the database to update, then reload users
+                              setTimeout(() => {
+                                loadUsers();
+                              }, 500);
+                            }
+                          }}
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                            user.hasValidPayment
+                              ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                              : 'bg-red-100 text-red-800 hover:bg-red-200'
+                          }`}
+                          title={user.hasValidPayment ? 'לחץ לסגירת גישה' : 'לחץ לפתיחת גישה'}
+                        >
+                          {user.hasValidPayment ? 'גישה פתוחה' : 'גישה סגורה'}
+                        </button>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2 justify-end">
@@ -377,7 +439,10 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
 
         {/* User Details Modal */}
         {selectedUser && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setSelectedUser(null)}>
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => {
+            setSelectedUser(null);
+            setSelectedUserPaymentStatus(null);
+          }}>
             <div
               className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
@@ -385,7 +450,10 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
               <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
                 <h2 className="text-2xl font-bold text-slate-700">פרטי משתמש</h2>
                 <button
-                  onClick={() => setSelectedUser(null)}
+                  onClick={() => {
+                    setSelectedUser(null);
+                    setSelectedUserPaymentStatus(null);
+                  }}
                   className="p-2 rounded-full hover:bg-slate-100 transition-colors"
                 >
                   <CloseIcon className="h-6 w-6 text-slate-600" />
@@ -423,6 +491,75 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                       {selectedUser.is_admin ? 'מנהל' : 'משתמש רגיל'}
                     </p>
                   </div>
+                </div>
+
+                {/* Payment Status */}
+                <div className="border-t border-slate-200 pt-6">
+                  <h3 className="text-lg font-semibold text-slate-700 mb-4">סטטוס תשלום</h3>
+                  {!selectedUserPaymentStatus ? (
+                    <p className="text-slate-600">טוען...</p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-slate-600">סטטוס:</span>
+                        <span className={`px-3 py-1 rounded-lg text-sm font-semibold ${
+                          selectedUserPaymentStatus.hasValidPayment
+                            ? 'bg-green-100 text-green-800'
+                            : selectedUserPaymentStatus.status === 'pending'
+                            ? 'bg-amber-100 text-amber-800'
+                            : selectedUserPaymentStatus.status === 'expired'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {selectedUserPaymentStatus.hasValidPayment
+                            ? 'שולם'
+                            : selectedUserPaymentStatus.status === 'pending'
+                            ? 'ממתין לתשלום'
+                            : selectedUserPaymentStatus.status === 'expired'
+                            ? 'פג תוקף'
+                            : 'לא שולם'}
+                        </span>
+                      </div>
+                      {selectedUserPaymentStatus.payment && (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-600">מועד בחינה:</span>
+                            <span className="text-sm text-slate-900">{selectedUserPaymentStatus.payment.exam_period}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-600">תאריך תפוגה:</span>
+                            <span className="text-sm text-slate-900">
+                              {new Date(selectedUserPaymentStatus.payment.expires_at).toLocaleDateString('he-IL', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit'
+                              })}
+                            </span>
+                          </div>
+                          {selectedUserPaymentStatus.payment.paid_at && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-slate-600">תאריך תשלום:</span>
+                              <span className="text-sm text-slate-900">
+                                {new Date(selectedUserPaymentStatus.payment.paid_at).toLocaleDateString('he-IL', {
+                                  year: 'numeric',
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-600">סכום:</span>
+                            <span className="text-sm text-slate-900">
+                              {(selectedUserPaymentStatus.payment.amount / 100).toFixed(2)} {selectedUserPaymentStatus.payment.currency.toUpperCase()}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Statistics */}

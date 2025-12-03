@@ -1,5 +1,6 @@
 import { supabase } from './authService';
 import { UserStats } from './userStatsService';
+import { checkPaymentStatus, PaymentRecord } from './paymentService';
 
 export interface AdminUser {
   id: string;
@@ -9,6 +10,10 @@ export interface AdminUser {
   created_at: string;
   last_sign_in_at: string | null;
   is_admin: boolean;
+  payment_bypassed?: boolean;
+  hasValidPayment?: boolean;
+  paymentStatus?: 'paid' | 'not_paid' | 'expired' | 'pending' | 'bypassed';
+  paymentExpiresAt?: string | null;
 }
 
 export interface UserDetails {
@@ -63,18 +68,70 @@ export async function getAllUsers(): Promise<{ users: AdminUser[]; error: Error 
       return { users: [], error: error as Error };
     }
 
-    const users: AdminUser[] = (data || []).map((user: any) => ({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      email_confirmed: user.email_confirmed,
-      created_at: user.created_at,
-      last_sign_in_at: user.last_sign_in_at,
-      is_admin: user.is_admin,
-      payment_bypassed: user.payment_bypassed || false,
-    }));
+    // Fetch payment status for each user in parallel
+    const usersWithPaymentStatus = await Promise.all(
+      (data || []).map(async (user: any) => {
+        // Preserve null vs false distinction: null = not set, false = explicitly revoked, true = granted
+        const payment_bypassed = user.payment_bypassed === true ? true : (user.payment_bypassed === false ? false : null);
+        let hasValidPayment = false;
+        let paymentStatus: 'paid' | 'not_paid' | 'expired' | 'pending' | 'bypassed' = 'not_paid';
+        let paymentExpiresAt: string | null = null;
 
-    return { users, error: null };
+        // Always fetch the actual payment record to show correct payment status in UI
+        const { data: paymentData, error: paymentError } = await supabase
+          .rpc('get_user_payment_for_admin', { target_user_id: user.id });
+        
+        // Determine payment status from actual payment record
+        if (!paymentError && paymentData && paymentData.length > 0) {
+          const payment = paymentData[0] as PaymentRecord;
+          
+          if (payment.status === 'succeeded') {
+            const expiresAt = new Date(payment.expires_at);
+            const now = new Date();
+            if (expiresAt > now) {
+              paymentStatus = 'paid';
+              paymentExpiresAt = payment.expires_at;
+            } else {
+              paymentStatus = 'expired';
+              paymentExpiresAt = payment.expires_at;
+            }
+          } else if (payment.status === 'pending') {
+            paymentStatus = 'pending';
+            paymentExpiresAt = payment.expires_at;
+          } else {
+            paymentStatus = 'not_paid';
+          }
+        } else {
+          paymentStatus = 'not_paid';
+        }
+
+        // Check actual access status (respects revoked bypass)
+        const { hasValidPayment: isValid } = await checkPaymentStatus(user.id);
+        hasValidPayment = isValid;
+
+        // If user has payment bypass explicitly granted OR is admin, override status to bypassed
+        // But only if they actually have access (hasValidPayment is true)
+        if ((payment_bypassed === true || user.is_admin) && hasValidPayment) {
+          paymentStatus = 'bypassed';
+        }
+
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          email_confirmed: user.email_confirmed,
+          created_at: user.created_at,
+          last_sign_in_at: user.last_sign_in_at,
+          is_admin: user.is_admin,
+          payment_bypassed: payment_bypassed === true, // Convert to boolean for display (true if granted, false otherwise)
+          hasValidPayment,
+          paymentStatus,
+          paymentExpiresAt,
+        };
+      })
+    );
+
+    return { users: usersWithPaymentStatus, error: null };
   } catch (error) {
     console.error('Error in getAllUsers:', error);
     return { users: [], error: error instanceof Error ? error : new Error('Unknown error') };

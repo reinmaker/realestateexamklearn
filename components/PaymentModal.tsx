@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createCheckoutSession } from '../services/stripeService';
 import { getCurrentExamPeriod } from '../services/paymentService';
-import { CloseIcon } from './icons';
+import { CloseIcon, CheckIcon } from './icons';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -19,6 +19,12 @@ const PaymentForm: React.FC<{
 }> = ({ userId, userEmail, onPaymentSuccess, onClose }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentExam, setCurrentExam] = useState<{ name: string; date: Date } | null>(null);
+
+  useEffect(() => {
+    const exam = getCurrentExamPeriod();
+    setCurrentExam(exam);
+  }, []);
 
   const handlePay = async () => {
     setIsProcessing(true);
@@ -26,8 +32,8 @@ const PaymentForm: React.FC<{
 
     try {
       // Get current exam period
-      const currentExam = getCurrentExamPeriod();
-      if (!currentExam) {
+      const exam = getCurrentExamPeriod();
+      if (!exam) {
         throw new Error('לא נמצא מועד בחינה פעיל');
       }
 
@@ -37,7 +43,7 @@ const PaymentForm: React.FC<{
         'ils',
         userId,
         userEmail,
-        currentExam.name
+        exam.name
       );
 
       if (sessionError || !checkoutUrl) {
@@ -52,15 +58,57 @@ const PaymentForm: React.FC<{
     }
   };
 
+  const features = [
+    'גישה מלאה לכל הסימולטורים',
+    'אימון מותאם אישית עם AI',
+    'הסברים מפורטים לכל שאלה',
+    'מעקב אחר התקדמות',
+    'חומרי לימוד מקיפים',
+    'תמיכה טכנית',
+    'עדכונים שוטפים',
+    currentExam ? `גישה בלתי מוגבלת עד ${currentExam.name}` : 'גישה בלתי מוגבלת עד המועד הקרוב'
+  ];
+
   return (
     <div className="space-y-6">
-      <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
-        <div className="mb-4">
-          <h3 className="text-lg font-semibold text-slate-800 mb-2">פרטי תשלום</h3>
-          <p className="text-sm text-slate-600">סכום לתשלום: <span className="font-bold text-slate-900">169 ₪</span></p>
-          <p className="text-xs text-slate-500 mt-2">
-            תועבר לדף התשלום המאובטח של Stripe להשלמת התשלום
-          </p>
+      {/* Pricing Card */}
+      <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+        {/* Blue Header */}
+        <div className="bg-sky-600 px-6 py-4">
+          <h2 className="text-white text-xl font-bold text-center">תשלום גישה לפלטפורמה</h2>
+        </div>
+
+        {/* Price Section */}
+        <div className="px-6 pt-8 pb-4 text-center">
+          <div className="text-5xl font-bold text-slate-900 mb-2">₪169</div>
+          <div className="text-sm text-slate-600">תשלום חד פעמי</div>
+        </div>
+
+        {/* Features List */}
+        <div className="px-6 pb-6 space-y-3">
+          {features.map((feature, index) => (
+            <div key={index} className="flex items-start gap-3">
+              <CheckIcon className="h-5 w-5 text-sky-600 flex-shrink-0 mt-0.5" />
+              <span className="text-sm text-slate-700">{feature}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Purchase Button */}
+        <div className="px-6 pb-6">
+          <button
+            type="button"
+            onClick={handlePay}
+            disabled={isProcessing}
+            className="w-full px-6 py-4 bg-sky-600 text-white font-semibold rounded-xl hover:bg-sky-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            <span>{isProcessing ? 'מעבד...' : 'לרכישה'}</span>
+            {!isProcessing && (
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            )}
+          </button>
         </div>
       </div>
 
@@ -70,22 +118,14 @@ const PaymentForm: React.FC<{
         </div>
       )}
 
-      <div className="flex gap-3">
+      <div className="flex justify-center">
         <button
           type="button"
           onClick={onClose}
           disabled={isProcessing}
-          className="flex-1 px-4 py-3 bg-slate-200 text-slate-700 font-semibold rounded-lg hover:bg-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-6 py-2 text-slate-600 hover:text-slate-800 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           ביטול
-        </button>
-        <button
-          type="button"
-          onClick={handlePay}
-          disabled={isProcessing}
-          className="flex-1 px-4 py-3 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isProcessing ? 'מעבד...' : 'המשך לתשלום'}
         </button>
       </div>
     </div>
@@ -100,8 +140,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, userId, us
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-800">תשלום גישה לפלטפורמה</h2>
+        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-end">
           <button
             onClick={onClose}
             className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
