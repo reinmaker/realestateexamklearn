@@ -115,10 +115,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
             </li>
           </ul>
         </div>
-        {(() => {
-          console.log('Sidebar: isAdmin prop value:', isAdmin, 'currentUser:', currentUser?.email);
-          return isAdmin;
-        })() && (
+        {isAdmin && (
           <div className="mt-6 pt-6 border-t border-slate-600">
             <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">ניהול</p>
             <ul>
@@ -162,7 +159,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, fileName, isMob
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              console.log('Logout button clicked in Sidebar');
               onLogout();
             }}
             disabled={isExamInProgress}

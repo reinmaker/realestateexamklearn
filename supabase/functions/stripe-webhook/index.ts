@@ -13,12 +13,6 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
-  console.log('Webhook received:', {
-    method: req.method,
-    url: req.url,
-    headers: Object.fromEntries(req.headers.entries()),
-  });
-
   try {
     // Get Stripe secret key and webhook secret from environment
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET');
@@ -45,15 +39,9 @@ Deno.serve(async (req) => {
 
     // Get the raw body FIRST (can only be read once)
     const body = await req.text();
-    console.log('Webhook body length:', body.length);
     
     // Get the signature from headers (Stripe sends it as 'stripe-signature')
     const signature = req.headers.get('stripe-signature');
-    
-    console.log('Webhook headers:', {
-      hasSignature: !!signature,
-      signaturePreview: signature ? signature.substring(0, 50) + '...' : null,
-    });
     
     if (!signature) {
       // Log all headers to debug
@@ -87,14 +75,8 @@ Deno.serve(async (req) => {
     // Verify webhook signature (use async version for Deno/Edge Functions)
     let event;
     try {
-      console.log('Attempting to verify webhook signature...', {
-        bodyLength: body.length,
-        signatureLength: signature.length,
-        hasWebhookSecret: !!webhookSecret,
-      });
       // Use constructEventAsync for Deno/Edge Functions environment
       event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
-      console.log('Webhook event verified successfully:', event.type, event.id);
     } catch (err) {
       console.error('Webhook signature verification failed:', {
         error: err.message,
@@ -116,13 +98,6 @@ Deno.serve(async (req) => {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
       
-      console.log('Processing checkout.session.completed event:', {
-        sessionId: session.id,
-        paymentIntentId: session.payment_intent,
-        customerEmail: session.customer_email,
-        metadata: session.metadata,
-      });
-      
       // Get payment intent ID from session
       const paymentIntentId = session.payment_intent as string;
       const userId = session.metadata?.userId;
@@ -134,10 +109,7 @@ Deno.serve(async (req) => {
         .eq('stripe_payment_intent_id', session.id)
         .limit(1);
       
-      console.log('Found payment record by session ID:', { existingPayment, findError });
-      
       if (findError || !existingPayment || existingPayment.length === 0) {
-        console.log('Payment record not found by session ID, trying user_id lookup...');
         // If not found by session ID, try to find by user_id and metadata
         if (userId) {
           const { data: userPayment, error: userFindError } = await supabase
@@ -147,8 +119,6 @@ Deno.serve(async (req) => {
             .eq('status', 'pending')
             .order('created_at', { ascending: false })
             .limit(1);
-          
-          console.log('Found payment record by user_id:', { userPayment, userFindError });
           
           if (userPayment && userPayment.length > 0) {
             // Update the found payment record
@@ -168,14 +138,10 @@ Deno.serve(async (req) => {
                 JSON.stringify({ error: 'Failed to update payment record', details: updateError.message }),
                 { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
               );
-            } else {
-              console.log('Successfully updated payment record:', userPayment[0].id);
             }
           } else {
-            console.warn('No pending payment found for user_id:', userId);
             // Try to create a new payment record if none exists
             if (session.metadata?.examPeriod && session.customer_email) {
-              console.log('Attempting to create payment record from webhook data...');
               const examDates: { [key: string]: string } = {
                 'מועד סתיו 2025': '2025-11-16',
                 'מועד חורף 2026': '2026-02-22',
@@ -202,8 +168,6 @@ Deno.serve(async (req) => {
                 
                 if (createError) {
                   console.error('Error creating payment record from webhook:', createError);
-                } else {
-                  console.log('Successfully created payment record from webhook');
                 }
               }
             }
@@ -238,12 +202,8 @@ Deno.serve(async (req) => {
             
             if (retryError) {
               console.error('Error updating payment record by payment intent:', retryError);
-            } else {
-              console.log('Successfully updated payment record by payment intent ID');
             }
           }
-        } else {
-          console.log('Successfully updated payment record by session ID');
         }
       }
     } else if (event.type === 'payment_intent.succeeded') {
@@ -266,8 +226,6 @@ Deno.serve(async (req) => {
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-
-      console.log('Payment succeeded:', paymentIntent.id);
     } else if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.failed') {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
       
@@ -287,8 +245,6 @@ Deno.serve(async (req) => {
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-
-      console.log('Payment failed:', paymentIntent.id);
     } else if (event.type === 'payment_intent.canceled') {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
       
@@ -308,8 +264,6 @@ Deno.serve(async (req) => {
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-
-      console.log('Payment canceled:', paymentIntent.id);
     }
 
     // Return a response to acknowledge receipt of the event

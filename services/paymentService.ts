@@ -106,17 +106,14 @@ async function checkPaymentBypass(userId: string): Promise<boolean | null> {
   try {
     // Check via RPC function
     const { data: bypassData, error: bypassError } = await supabase.rpc('get_user_payment_bypass', { user_id: userId });
-    console.log(`[checkPaymentBypass] RPC result for user ${userId}:`, { bypassData, bypassError, type: typeof bypassData });
     
     if (!bypassError && bypassData !== null && bypassData !== undefined) {
       // If explicitly false, return false (revoked)
       // If explicitly true, return true (granted)
       if (bypassData === false || bypassData === 'false') {
-        console.log(`[checkPaymentBypass] User ${userId} bypass explicitly revoked (false)`);
         return false; // Explicitly revoked
       }
       if (bypassData === true || bypassData === 'true') {
-        console.log(`[checkPaymentBypass] User ${userId} bypass explicitly granted (true)`);
         return true; // Explicitly granted
       }
     }
@@ -128,7 +125,6 @@ async function checkPaymentBypass(userId: string): Promise<boolean | null> {
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.id === userId) {
         const metadataBypass = user?.user_metadata?.payment_bypassed;
-        console.log(`[checkPaymentBypass] Fallback metadata check for user ${userId}:`, metadataBypass);
         if (metadataBypass === false || metadataBypass === 'false') {
           return false; // Explicitly revoked
         }
@@ -138,7 +134,6 @@ async function checkPaymentBypass(userId: string): Promise<boolean | null> {
       }
     }
     
-    console.log(`[checkPaymentBypass] User ${userId} bypass not set (null)`);
     return null; // Not set
   } catch (error) {
     console.error('Exception checking payment bypass:', error);
@@ -153,14 +148,11 @@ export async function checkPaymentStatus(userId: string): Promise<{ hasValidPaym
   try {
     // First check if user has payment bypass (admin granted access)
     const bypassStatus = await checkPaymentBypass(userId);
-    console.log(`[checkPaymentStatus] User ${userId} bypass status:`, bypassStatus);
     if (bypassStatus === true) {
-      console.log(`User ${userId} has payment bypass - granting access`);
       return { hasValidPayment: true, payment: null, error: null };
     }
     // If bypass is explicitly false (revoked), deny access even if they have payment
     if (bypassStatus === false) {
-      console.log(`User ${userId} has payment bypass explicitly revoked - denying access`);
       return { hasValidPayment: false, payment: null, error: null };
     }
 
@@ -179,26 +171,11 @@ export async function checkPaymentStatus(userId: string): Promise<{ hasValidPaym
 
     // No payment found
     if (!data || data.length === 0) {
-      console.log(`No payment records found for user ${userId}`);
       return { hasValidPayment: false, payment: null, error: null };
     }
 
     const payment = data[0] as PaymentRecord;
-    console.log('Found payment record:', {
-      id: payment.id,
-      status: payment.status,
-      exam_period: payment.exam_period,
-      expires_at: payment.expires_at,
-      paid_at: payment.paid_at,
-    });
-    
     const isValid = isPaymentValid(payment);
-    console.log('Payment validation result:', {
-      isValid,
-      statusCheck: payment.status === 'succeeded',
-      expirationCheck: new Date(payment.expires_at) > new Date(),
-      examPeriodCheck: payment.exam_period === getCurrentExamPeriod()?.name,
-    });
 
     return { hasValidPayment: isValid, payment: isValid ? payment : null, error: null };
   } catch (error) {

@@ -73,7 +73,6 @@ Deno.serve(async (req) => {
         try {
           const refererUrl = new URL(referer);
           origin = `${refererUrl.protocol}//${refererUrl.host}`;
-          console.log('Using referer header as origin:', origin);
         } catch (e) {
           console.error('Failed to parse referer URL:', e);
         }

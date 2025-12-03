@@ -48,8 +48,6 @@ export async function createCheckoutSession(
       return { checkoutUrl: null, sessionId: null, error: error };
     }
 
-    console.log('Checkout session response:', data);
-
     if (!data) {
       return { checkoutUrl: null, sessionId: null, error: new Error('No data returned from checkout session creation') };
     }

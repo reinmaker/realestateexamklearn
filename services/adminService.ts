@@ -35,7 +35,6 @@ export interface UserDetails {
  */
 export async function isAdmin(userId: string): Promise<boolean> {
   try {
-    console.log('Checking admin status for user:', userId);
     const { data, error } = await supabase.rpc('is_user_admin', { user_id: userId });
     
     if (error) {
@@ -44,10 +43,8 @@ export async function isAdmin(userId: string): Promise<boolean> {
       return false;
     }
     
-    console.log('Admin status from RPC:', data, 'Type:', typeof data);
     // Handle both boolean true and string "true" cases
     const isAdminResult = data === true || data === 'true' || data === 1;
-    console.log('Final admin status:', isAdminResult);
     return isAdminResult;
   } catch (error) {
     console.error('Exception in isAdmin:', error);
