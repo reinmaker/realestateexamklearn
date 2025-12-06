@@ -466,9 +466,14 @@ const QuizView: React.FC<QuizViewProps> = ({
   }, [regenerationStorageKey]);
   
   useEffect(() => {
+    // For reinforcement quizzes, don't auto-generate - only generate when user explicitly clicks a button
+    if (quizType === 'reinforcement' && !questions) {
+      return; // Don't auto-generate reinforcement quiz
+    }
+    
     // Only regenerate if:
     // 1. Quiz is finished (user completed it) - allow regeneration for new quiz
-    // 2. No questions exist AND user hasn't started - initial load
+    // 2. No questions exist AND user hasn't started - initial load (only for regular quiz)
     // Don't regenerate if quiz is in progress (user has questions and hasn't finished)
     const userHasStarted = currentQuestionIndex > 0 || selectedAnswer !== null;
     const quizIsFinished = isFinished;
@@ -489,7 +494,7 @@ const QuizView: React.FC<QuizViewProps> = ({
     
     // Only regenerate if:
     // - Quiz is finished (completed), OR
-    // - No questions AND user hasn't started AND hasn't regenerated yet
+    // - No questions AND user hasn't started AND hasn't regenerated yet (only for regular quiz)
     const shouldRegenerate = (quizIsFinished || (!questions && !userHasStarted)) && 
                              !isLoading && 
                              !hasRegeneratedRef.current && 
@@ -514,7 +519,7 @@ const QuizView: React.FC<QuizViewProps> = ({
           // Only reset when quiz finishes (for next regeneration)
         });
     }
-  }, [questions, isLoading, isTargetedQuizGenerating, regenerateQuiz, currentQuestionIndex, selectedAnswer, regenerationStorageKey, isFinished]);
+  }, [questions, isLoading, isTargetedQuizGenerating, regenerateQuiz, currentQuestionIndex, selectedAnswer, regenerationStorageKey, isFinished, quizType]);
   
   // Reset regeneration flag only when quiz finishes (allows regeneration for next quiz)
   useEffect(() => {
@@ -1061,6 +1066,21 @@ const QuizView: React.FC<QuizViewProps> = ({
   
   if (!displayQuestion) {
      if (!isFullyLoaded && !isLoading) {
+        // For reinforcement quiz, show a message prompting user to generate it
+        if (quizType === 'reinforcement' && !questions) {
+          return (
+            <div className="flex-grow flex items-center justify-center p-4 md:p-8 text-center">
+              <div>
+                <h2 className="text-2xl font-semibold text-slate-800 mb-4">בוחן חיזוק</h2>
+                <p className="text-slate-600 mt-2 mb-6">לחץ על הכפתור כדי ליצור בוחן חיזוק מותאם אישית</p>
+                <button onClick={regenerateQuiz} className="px-8 py-3 bg-sky-600 text-white font-bold rounded-2xl hover:bg-sky-700 transition-colors text-lg">
+                  צור בוחן חיזוק
+                </button>
+              </div>
+            </div>
+          );
+        }
+        // For regular quiz, show error message
         return (
             <div className="flex-grow flex items-center justify-center p-4 md:p-8 text-center">
                 <div>
