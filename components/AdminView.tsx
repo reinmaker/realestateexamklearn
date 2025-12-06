@@ -361,24 +361,15 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                             // This reflects the actual access status from checkPaymentStatus
                             const hasAccess = user.hasValidPayment || false;
                             
-                            console.log(`[AdminView] Toggling access for user ${user.id} (${user.email}):`, {
-                              hasAccess,
-                              paymentStatus: user.paymentStatus,
-                              payment_bypassed: user.payment_bypassed,
-                              hasValidPayment: user.hasValidPayment
-                            });
-                            
                             // If they have access, revoke it by setting bypass to false
                             // If they don't have access, grant it by setting bypass to true
                             const newBypassStatus = !hasAccess;
-                            console.log(`[AdminView] Setting payment_bypassed to:`, newBypassStatus);
                             
                             const { error } = await togglePaymentBypass(user.id, newBypassStatus);
                             if (error) {
                               console.error(`[AdminView] Error toggling bypass:`, error);
                               setError(`שגיאה בעדכון גישה: ${error.message}`);
                             } else {
-                              console.log(`[AdminView] Successfully toggled bypass, reloading users...`);
                               // Wait a moment for the database to update, then reload users
                               setTimeout(() => {
                                 loadUsers();

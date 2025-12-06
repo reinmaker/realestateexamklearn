@@ -1,10 +1,47 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { createCheckoutSession } from '../services/stripeService';
+import { getCurrentExamPeriod } from '../services/paymentService';
 
 interface PaymentBannerProps {
-  onPayClick: () => void;
+  userId: string;
+  userEmail: string;
 }
 
-const PaymentBanner: React.FC<PaymentBannerProps> = ({ onPayClick }) => {
+const PaymentBanner: React.FC<PaymentBannerProps> = ({ userId, userEmail }) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handlePay = async () => {
+    setIsProcessing(true);
+
+    try {
+      // Get current exam period
+      const exam = getCurrentExamPeriod();
+      if (!exam) {
+        throw new Error('לא נמצא מועד בחינה פעיל');
+      }
+
+      // Create checkout session
+      const { checkoutUrl, error: sessionError } = await createCheckoutSession(
+        16900, // 169 NIS in agorot
+        'ils',
+        userId,
+        userEmail,
+        exam.name
+      );
+
+      if (sessionError || !checkoutUrl) {
+        throw sessionError || new Error('נכשל ביצירת סשן תשלום');
+      }
+
+      // Redirect to Stripe Checkout
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      setIsProcessing(false);
+      console.error('Error creating checkout session:', err);
+      alert(err instanceof Error ? err.message : 'שגיאה לא ידועה');
+    }
+  };
+
   return (
     <div className="bg-amber-500 border-b-2 border-amber-600 shadow-lg">
       <div className="max-w-7xl mx-auto px-4 py-3">
@@ -20,10 +57,11 @@ const PaymentBanner: React.FC<PaymentBannerProps> = ({ onPayClick }) => {
             </p>
           </div>
           <button
-            onClick={onPayClick}
-            className="flex-shrink-0 bg-white text-amber-600 font-bold px-6 py-2 rounded-lg hover:bg-amber-50 transition-colors shadow-md"
+            onClick={handlePay}
+            disabled={isProcessing}
+            className="flex-shrink-0 bg-white text-amber-600 font-bold px-6 py-2 rounded-lg hover:bg-amber-50 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            שלם עכשיו
+            {isProcessing ? 'מעבד...' : 'שלם עכשיו'}
           </button>
         </div>
       </div>

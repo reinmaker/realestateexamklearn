@@ -20,6 +20,10 @@ Deno.serve(async (req) => {
       throw new Error('STRIPE_SECRET is not set');
     }
 
+    // Debug: Log which mode Stripe is using (test vs live)
+    const isLiveMode = stripeSecretKey.startsWith('sk_live_');
+    console.log(`[DEBUG] Stripe mode: ${isLiveMode ? 'LIVE (Production)' : 'TEST (Sandbox)'}, Key prefix: ${stripeSecretKey.substring(0, 7)}...`);
+
     const stripe = new Stripe(stripeSecretKey, {
       apiVersion: '2023-10-16',
       httpClient: Stripe.createFetchHttpClient(),

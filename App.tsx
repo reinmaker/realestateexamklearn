@@ -25,7 +25,6 @@ import { categorizeQuestionsByTopic, calculateTopicProgress, getWeakAndStrongTop
 import { isAdmin } from './services/adminService';
 import { checkPaymentStatus } from './services/paymentService';
 import PaymentBanner from './components/PaymentBanner';
-import PaymentModal from './components/PaymentModal';
 // Book references are now fetched on-demand when user reaches each question in QuizView
 
 const App: React.FC = () => {
@@ -43,7 +42,6 @@ const App: React.FC = () => {
   const [isExamInProgress, setIsExamInProgress] = useState(false);
   const [showReinforcementQuizReadyToast, setShowReinforcementQuizReadyToast] = useState(false);
   const [hasValidPayment, setHasValidPayment] = useState(false);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[] | null>(null);
@@ -128,6 +126,7 @@ const App: React.FC = () => {
   useEffect(() => {
     reinforcementQuizQuestionsRef.current = reinforcementQuizQuestions;
   }, [reinforcementQuizQuestions]);
+
 
   const fileName = "דיני מתווכים במקרקעין";
   
@@ -1058,9 +1057,10 @@ const App: React.FC = () => {
           if (!quizQuestions && !generationStatus.quiz.generating && !targetedQuizAttemptedRef.current) {
             regenerateQuiz();
           }
-          if (!reinforcementQuizQuestions && !generationStatus['reinforcement-quiz'].generating && !targetedReinforcementQuizAttemptedRef.current) {
-            regenerateReinforcementQuiz();
-          }
+          // Don't auto-generate reinforcement quiz - only generate when user clicks the button
+          // if (!reinforcementQuizQuestions && !generationStatus['reinforcement-quiz'].generating && !targetedReinforcementQuizAttemptedRef.current) {
+          //   regenerateReinforcementQuiz();
+          // }
           if (!examQuestions) {
             regenerateExam();
           }
@@ -1281,9 +1281,8 @@ const App: React.FC = () => {
     }
   };
 
-  // Handle payment success
+  // Handle payment success (called after redirect from Stripe)
   const handlePaymentSuccess = async () => {
-    setIsPaymentModalOpen(false);
     if (currentUser) {
       // Recheck payment status
       await checkUserPaymentStatus(currentUser.id);
@@ -1927,17 +1926,9 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col overflow-hidden relative">
         {/* Payment Banner - show when user is logged in but hasn't paid */}
         {currentUser && !hasValidPayment && !isAdminUser && (
-          <PaymentBanner onPayClick={() => setIsPaymentModalOpen(true)} />
-        )}
-
-        {/* Payment Modal */}
-        {currentUser && (
-          <PaymentModal
-            isOpen={isPaymentModalOpen}
-            onClose={() => setIsPaymentModalOpen(false)}
+          <PaymentBanner 
             userId={currentUser.id}
             userEmail={currentUser.email || ''}
-            onPaymentSuccess={handlePaymentSuccess}
           />
         )}
 
