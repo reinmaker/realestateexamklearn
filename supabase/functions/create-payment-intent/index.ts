@@ -27,8 +27,6 @@ Deno.serve(async (req) => {
     const stripe = new Stripe(stripeSecretKey, {
       apiVersion: '2023-10-16',
       httpClient: Stripe.createFetchHttpClient(),
-      // Use Deno-compatible fetch
-      fetch: fetch,
     });
 
     // Get Supabase client
@@ -95,6 +93,11 @@ Deno.serve(async (req) => {
     const successUrl = `${origin}/?payment=success`;
     const cancelUrl = `${origin}/?payment=canceled`;
 
+    // Create features list for product description
+    // Stripe Checkout description field doesn't support line breaks - it collapses to single line
+    // Using commas as separators
+    const featuresList = `גישה מלאה לכל הסימולטורים, אימון מותאם אישית עם AI, הסברים מפורטים לכל שאלה, מעקב אחר התקדמות, חומרי לימוד מקיפים, תמיכה טכנית, עדכונים שוטפים, גישה בלתי מוגבלת עד ${examPeriod}`;
+
     // Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -104,7 +107,7 @@ Deno.serve(async (req) => {
             currency: currency.toLowerCase(), // 'ils' for Israeli Shekel
             product_data: {
               name: `גישה לפלטפורמה - ${examPeriod}`,
-              description: `תשלום עבור גישה לפלטפורמה עד ${examPeriod}`,
+              description: featuresList,
             },
             unit_amount: amount, // Amount in agorot (16900 for 169 NIS)
           },
