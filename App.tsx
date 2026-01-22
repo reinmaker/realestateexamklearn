@@ -604,7 +604,9 @@ const App: React.FC = () => {
       // Quiz is not finished - check if user is actively answering
       const userIsActive = currentIndex > 0 || currentSelectedAnswer !== null || currentProgress.showAnswer;
       
-      if (userIsActive && reinforcementQuizQuestions && reinforcementQuizQuestions.length > 0) {
+      // Use ref to get current questions to avoid stale closure issues
+      const currentQuestions = reinforcementQuizQuestionsRef.current;
+      if (userIsActive && currentQuestions && currentQuestions.length > 0) {
         return;
       }
     }

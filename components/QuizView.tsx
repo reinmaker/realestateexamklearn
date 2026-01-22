@@ -813,10 +813,10 @@ const QuizView: React.FC<QuizViewProps> = ({
     return 'bg-slate-50 border-slate-200 text-slate-500';
   };
 
-  // Show loading screen only if we have no questions at all
+  // Show loading screen only if we have no questions at all AND we're actively loading
   // For regular quiz, don't show loading screen - questions load quickly from DB
   // For reinforcement quiz, show loading screen since it takes ~1:30 to generate
-  if ((!questions || questions.length === 0) && quizType === 'reinforcement') {
+  if ((!questions || questions.length === 0) && quizType === 'reinforcement' && isLoading) {
       const displayProgress = Math.min(Math.round(progress), 100);
       // Ensure minimum width so the bar is visible even at 0%
       const barWidth = Math.max(displayProgress, isLoading ? 1 : 0);
