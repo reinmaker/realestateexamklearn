@@ -202,6 +202,7 @@ const QuizView: React.FC<QuizViewProps> = ({
   const lastQuestionTextRef = useRef<string>('');
   const stableBookReferenceRef = useRef<string | null>(null);
   const lastBookReferenceRef = useRef<string | null>(null);
+  const fetchInProgressRef = useRef<string | null>(null); // Track which question is being fetched
   
   // Effect 1: Handle book reference when question index changes (using stable question)
   useEffect(() => {
@@ -283,14 +284,28 @@ const QuizView: React.FC<QuizViewProps> = ({
       }
     } else {
       // Try to generate book reference if missing
+      // Check if fetch is already in progress for this question
+      if (fetchInProgressRef.current === questionKey) {
+        return; // Already fetching this question
+      }
+      
+      // Mark fetch as in progress
+      fetchInProgressRef.current = questionKey;
+      
+      // Get the correct answer text to help AI find the right section
+      const correctAnswerText = questionFromArray.options && questionFromArray.correctAnswerIndex !== undefined
+        ? questionFromArray.options[questionFromArray.correctAnswerIndex]
+        : undefined;
+      
       import('../services/bookReferenceService').then(({ getBookReferenceByAI }) => {
-        getBookReferenceByAI(questionText, undefined, documentContent)
+        getBookReferenceByAI(questionText, undefined, documentContent, correctAnswerText)
           .then((generatedRef) => {
             setDisplayBookReference(generatedRef);
             stableBookReferenceRef.current = generatedRef;
             lastBookReferenceRef.current = generatedRef;
             setCachedBookReference(questionKey, generatedRef);
             setIsLoadingBookReference(false);
+            fetchInProgressRef.current = null; // Clear fetch in progress
           })
           .catch((error) => {
             console.warn('QuizView: Failed to generate bookReference:', error);
@@ -298,6 +313,7 @@ const QuizView: React.FC<QuizViewProps> = ({
             stableBookReferenceRef.current = null;
             lastBookReferenceRef.current = null;
             setIsLoadingBookReference(false);
+            fetchInProgressRef.current = null; // Clear fetch in progress
           });
       });
     }

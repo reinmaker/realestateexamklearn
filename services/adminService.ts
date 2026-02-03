@@ -430,6 +430,48 @@ export async function togglePaymentBypass(userId: string, bypass: boolean): Prom
 }
 
 /**
+ * Create a new user
+ * Uses Edge Function that calls Supabase Auth Admin API
+ */
+export async function createUser(
+  email: string,
+  password: string,
+  name?: string,
+  is_admin?: boolean
+): Promise<{ userId: string | null; error: Error | null }> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return { userId: null, error: new Error('Not authenticated') };
+    }
+
+    const response = await supabase.functions.invoke('create-user', {
+      body: {
+        email,
+        password,
+        name: name || '',
+        is_admin: is_admin || false,
+      },
+    });
+
+    if (response.error) {
+      console.error('Error creating user:', response.error);
+      return { userId: null, error: new Error(response.error.message || 'Failed to create user') };
+    }
+
+    if (response.data?.error) {
+      console.error('Error creating user:', response.data.error);
+      return { userId: null, error: new Error(response.data.error) };
+    }
+
+    return { userId: response.data?.user_id || null, error: null };
+  } catch (error) {
+    console.error('Error in createUser:', error);
+    return { userId: null, error: error instanceof Error ? error : new Error('Unknown error') };
+  }
+}
+
+/**
  * Get user statistics
  */
 export async function getUserStats(userId: string): Promise<{ stats: UserStats | null; error: Error | null }> {

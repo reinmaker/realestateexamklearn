@@ -1897,48 +1897,18 @@ function extractSectionFromTopic(topic: string): string | undefined {
 export async function getBookReferenceByAI(
   questionText: string,
   topic?: string,
-  documentContent?: string
+  documentContent?: string,
+  answer?: string
 ): Promise<string> {
-  // Use ONLY OpenAI - no keyword fallbacks
-  try {
-    const aiReference = await getBookReferenceOpenAI(questionText, topic, documentContent);
-    
-    // Check if response indicates "not found" - return it anyway
-    const notFoundPatterns = [
-      /לא נמצא/,
-      /לא נמצא בספר/,
-      /אנא עבור על חלק/,
-      /עבור על חלק/,
-      /חלק 2/,
-      /not found/i,
-      /no reference/i,
-      /לא קיים/,
-      /אין הפניה/
-    ];
-    
-    const isNotFoundMessage = notFoundPatterns.some(pattern => pattern.test(aiReference));
-    
-    if (isNotFoundMessage) {
-      return aiReference; // Return the "not found" message as-is
-    }
-    
-    // Return OpenAI response as-is without validation to preserve the exact response
-    // Only validate if it's in the new format (with "מופיע בעמ" or "מתחילות בעמ")
-    if (aiReference.includes('מופיע בעמ') || aiReference.includes('מתחילות בעמ')) {
-      // Only validate new format references to clean up page numbers and instruction text
-      const validatedRef = validateReference(aiReference, questionText);
-      return validatedRef;
-    }
-    
-    // For all other formats, return as-is
-    return aiReference;
-  } catch (error) {
-    const errorMessage = (error as Error).message;
-    console.warn('OpenAI book reference failed:', errorMessage);
-    
-    // Re-throw the error - no fallbacks, use only OpenAI
-    throw error;
-  }
+  console.log('📚 Using OpenAI File Search...');
+  
+  // Import the file search service
+  const { getBookReference } = await import('./fileSearchService');
+  
+  // Use file search with the PDFs - pass answer for better accuracy
+  const reference = await getBookReference(questionText, topic, answer);
+  
+  return reference;
 }
 
 /**

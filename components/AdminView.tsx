@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { checkPaymentStatus } from '../services/paymentService';
 import { AdminUser, UserDetails, PricingQuote } from '../types';
-import { getAllUsers, getUserDetails, deleteUser, updateUser, resetUserProgress, togglePaymentBypass } from '../services/adminService';
+import { getAllUsers, getUserDetails, deleteUser, updateUser, resetUserProgress, togglePaymentBypass, createUser } from '../services/adminService';
 import { CloseIcon, UserIcon, TrashIcon, PencilIcon, SearchIcon, DocumentIcon, PlusIcon } from './icons';
 import QuoteList from './QuoteList';
 import QuoteForm from './QuoteForm';
@@ -26,6 +26,8 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
   const [showQuoteForm, setShowQuoteForm] = useState(false);
   const [editingQuote, setEditingQuote] = useState<PricingQuote | null>(null);
   const [quoteRefreshKey, setQuoteRefreshKey] = useState(0);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [addUserForm, setAddUserForm] = useState({ email: '', password: '', name: '', is_admin: false });
 
   useEffect(() => {
     loadUsers();
@@ -134,6 +136,36 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
     }
   };
 
+  const handleAddUser = async () => {
+    if (!addUserForm.email || !addUserForm.password) {
+      setError('יש להזין אימייל וסיסמה');
+      return;
+    }
+
+    if (addUserForm.password.length < 6) {
+      setError('הסיסמה חייבת להכיל לפחות 6 תווים');
+      return;
+    }
+
+    setIsSaving(true);
+    const { userId, error: createError } = await createUser(
+      addUserForm.email,
+      addUserForm.password,
+      addUserForm.name || undefined,
+      addUserForm.is_admin
+    );
+
+    if (createError) {
+      setError(createError.message || 'שגיאה ביצירת המשתמש');
+      setIsSaving(false);
+    } else {
+      setShowAddUserModal(false);
+      setAddUserForm({ email: '', password: '', name: '', is_admin: false });
+      await loadUsers();
+      setIsSaving(false);
+    }
+  };
+
   const filteredUsers = users.filter(user => {
     const search = searchTerm.toLowerCase();
     return (
@@ -154,7 +186,7 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
     });
   };
 
-  if (isLoading) {
+  if (isLoading && !showAddUserModal && !showEditModal && !showDeleteConfirm && !showResetConfirm) {
     return (
       <div className="flex-grow p-4 md:p-8 overflow-y-auto flex items-center justify-center">
         <div className="text-center">
@@ -282,6 +314,13 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                 className="w-full pr-10 pl-4 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-slate-900"
               />
             </div>
+            <button
+              onClick={() => setShowAddUserModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white font-semibold rounded-xl hover:bg-sky-700 transition-colors"
+            >
+              <PlusIcon className="h-5 w-5" />
+              הוסף משתמש
+            </button>
             <div className="text-sm text-slate-600 flex items-center">
               סה"כ: {filteredUsers.length} משתמשים
             </div>
@@ -814,6 +853,112 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUser }) => {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add User Modal */}
+        {showAddUserModal && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowAddUserModal(false)}>
+            <div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+                <h2 className="text-2xl font-bold text-slate-700">הוסף משתמש חדש</h2>
+                <button
+                  onClick={() => setShowAddUserModal(false)}
+                  className="p-2 rounded-full hover:bg-slate-100 transition-colors"
+                >
+                  <CloseIcon className="h-6 w-6 text-slate-600" />
+                </button>
+              </div>
+
+              <form onSubmit={(e) => { e.preventDefault(); handleAddUser(); }} className="p-6 space-y-4">
+                <div>
+                  <label htmlFor="add-email" className="block text-sm font-semibold text-slate-700 mb-1">
+                    אימייל <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="add-email"
+                    type="email"
+                    value={addUserForm.email}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-slate-900"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="add-password" className="block text-sm font-semibold text-slate-700 mb-1">
+                    סיסמה <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="add-password"
+                    type="password"
+                    value={addUserForm.password}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, password: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-slate-900"
+                    minLength={6}
+                    required
+                  />
+                  <p className="text-xs text-slate-500 mt-1">לפחות 6 תווים</p>
+                </div>
+
+                <div>
+                  <label htmlFor="add-name" className="block text-sm font-semibold text-slate-700 mb-1">
+                    שם
+                  </label>
+                  <input
+                    id="add-name"
+                    type="text"
+                    value={addUserForm.name}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-slate-900"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    id="add-admin"
+                    type="checkbox"
+                    checked={addUserForm.is_admin}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, is_admin: e.target.checked })}
+                    className="w-4 h-4 text-sky-600 border-slate-300 rounded focus:ring-sky-500"
+                  />
+                  <label htmlFor="add-admin" className="text-sm font-semibold text-slate-700">
+                    מנהל
+                  </label>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddUserModal(false);
+                      setAddUserForm({ email: '', password: '', name: '', is_admin: false });
+                    }}
+                    disabled={isSaving}
+                    className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-300 transition-colors disabled:opacity-50"
+                  >
+                    ביטול
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="flex-1 px-4 py-2 bg-sky-600 text-white font-semibold rounded-xl hover:bg-sky-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        יוצר...
+                      </>
+                    ) : (
+                      'צור משתמש'
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

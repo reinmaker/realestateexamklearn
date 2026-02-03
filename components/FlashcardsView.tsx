@@ -72,6 +72,7 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
   const stableBookReferenceRef = useRef<string | null>(null);
   const lastBookReferenceRef = useRef<string | null>(null);
   const lastQuestionTextRef = useRef<string | null>(null);
+  const fetchInProgressRef = useRef<string | null>(null); // Track which question is being fetched
 
   const loadingMessages = [
     'סורק את חומר הלימוד ומזהה נושאי ליבה...',
@@ -192,8 +193,19 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
       }
     } else {
       // Try to generate book reference if missing
+      // Check if fetch is already in progress for this question
+      if (fetchInProgressRef.current === questionKey) {
+        return; // Already fetching this question
+      }
+      
+      // Mark fetch as in progress
+      fetchInProgressRef.current = questionKey;
+      
+      // Get the answer to help AI find the right section
+      const answerText = cardFromArray.answer;
+      
       import('../services/bookReferenceService').then(({ getBookReferenceByAI }) => {
-        getBookReferenceByAI(questionText, undefined, documentContent)
+        getBookReferenceByAI(questionText, undefined, documentContent, answerText)
           .then((generatedRef) => {
             // Always display the OpenAI response, even if it indicates "not found"
             setDisplayBookReference(generatedRef);
@@ -201,6 +213,7 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
             lastBookReferenceRef.current = generatedRef;
             setCachedBookReference(questionKey, generatedRef);
             setIsLoadingBookReference(false);
+            fetchInProgressRef.current = null; // Clear fetch in progress
           })
           .catch((error) => {
             console.warn('FlashcardsView: Failed to generate bookReference:', error);
@@ -217,6 +230,7 @@ const FlashcardsView: React.FC<FlashcardsViewProps> = ({
               lastBookReferenceRef.current = null;
             }
             setIsLoadingBookReference(false);
+            fetchInProgressRef.current = null; // Clear fetch in progress
           });
       });
     }
