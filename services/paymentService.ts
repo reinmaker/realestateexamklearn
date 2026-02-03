@@ -1,5 +1,14 @@
 import { supabase } from './authService';
 
+// Cache for payment status to avoid redundant DB calls
+let paymentStatusCache: {
+  userId: string;
+  hasValidPayment: boolean;
+  timestamp: number;
+} | null = null;
+
+const CACHE_TTL_MS = 30000; // 30 seconds cache
+
 export interface PaymentRecord {
   email: string;
   id: string;
@@ -28,7 +37,7 @@ const EXAM_DATES: ExamPeriod[] = [
     name: 'מועד סתיו 2025',
   },
   {
-    date: new Date('2026-02-22'),
+    date: new Date('2026-03-01'),
     name: 'מועד חורף 2026',
   },
   {
@@ -142,17 +151,27 @@ async function checkPaymentBypass(userId: string): Promise<boolean | null> {
 }
 
 /**
- * Check if user has a valid payment
+ * Check if user has a valid payment (with caching to reduce DB calls)
  */
-export async function checkPaymentStatus(userId: string): Promise<{ hasValidPayment: boolean; payment: PaymentRecord | null; error: Error | null }> {
+export async function checkPaymentStatus(userId: string, forceRefresh: boolean = false): Promise<{ hasValidPayment: boolean; payment: PaymentRecord | null; error: Error | null }> {
+  // Check cache first (unless force refresh)
+  if (!forceRefresh && paymentStatusCache && 
+      paymentStatusCache.userId === userId && 
+      Date.now() - paymentStatusCache.timestamp < CACHE_TTL_MS) {
+    return { hasValidPayment: paymentStatusCache.hasValidPayment, payment: null, error: null };
+  }
+
   try {
     // First check if user has payment bypass (admin granted access)
     const bypassStatus = await checkPaymentBypass(userId);
     if (bypassStatus === true) {
+      // Cache the result
+      paymentStatusCache = { userId, hasValidPayment: true, timestamp: Date.now() };
       return { hasValidPayment: true, payment: null, error: null };
     }
     // If bypass is explicitly false (revoked), deny access even if they have payment
     if (bypassStatus === false) {
+      paymentStatusCache = { userId, hasValidPayment: false, timestamp: Date.now() };
       return { hasValidPayment: false, payment: null, error: null };
     }
 
@@ -171,17 +190,28 @@ export async function checkPaymentStatus(userId: string): Promise<{ hasValidPaym
 
     // No payment found
     if (!data || data.length === 0) {
+      paymentStatusCache = { userId, hasValidPayment: false, timestamp: Date.now() };
       return { hasValidPayment: false, payment: null, error: null };
     }
 
     const payment = data[0] as PaymentRecord;
     const isValid = isPaymentValid(payment);
 
+    // Cache the result
+    paymentStatusCache = { userId, hasValidPayment: isValid, timestamp: Date.now() };
+    
     return { hasValidPayment: isValid, payment: isValid ? payment : null, error: null };
   } catch (error) {
     console.error('Exception checking payment status:', error);
     return { hasValidPayment: false, payment: null, error: error instanceof Error ? error : new Error('Unknown error checking payment status') };
   }
+}
+
+/**
+ * Clear payment cache (call when payment status might have changed)
+ */
+export function clearPaymentCache() {
+  paymentStatusCache = null;
 }
 
 /**

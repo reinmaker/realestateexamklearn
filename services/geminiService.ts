@@ -1,5 +1,37 @@
 import { GoogleGenAI, Type, GenerateContentResponse, Chat, Modality } from "@google/genai";
+import OpenAI from 'openai';
 import { QuizQuestion, Flashcard, ChatMessage, QuizResult, AnalysisResult } from '../types';
+import { getOpenAIKey } from './apiKeysService';
+
+// Cache for OpenAI client
+let openAIClientGemini: OpenAI | null = null;
+let openAIKeyGemini: string | null = null;
+
+// OpenAI Quiz Generator Assistant ID (has PDFs attached)
+const QUIZ_ASSISTANT_ID = 'asst_cXmUjj3z02Yzg8L9RaHHlWoJ';
+
+// Initialize OpenAI client for quiz generation
+const getOpenAIForQuiz = async (): Promise<OpenAI> => {
+  try {
+    const apiKey = await getOpenAIKey();
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY not configured');
+    }
+    if (!openAIClientGemini || openAIKeyGemini !== apiKey) {
+      openAIKeyGemini = apiKey;
+      openAIClientGemini = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
+    }
+    return openAIClientGemini;
+  } catch {
+    const apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_API_KEY) || null;
+    if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
+    if (!openAIClientGemini || openAIKeyGemini !== apiKey) {
+      openAIKeyGemini = apiKey;
+      openAIClientGemini = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
+    }
+    return openAIClientGemini;
+  }
+};
 
 // The GoogleGenAI instance is now created on-demand within each function.
 // This prevents initialization errors when the module is first loaded,
@@ -782,11 +814,113 @@ export async function generateQuizFromPdfs(count: number = 10): Promise<QuizQues
   }
 }
 
-
 /**
- * Determines the correct answer index and explanation for a question with options
- * This is much faster than generating the entire question
+ * Generate quiz questions using OpenAI Assistant API
+ * Uses the existing assistant with PDFs attached (fallback when Gemini quota exceeded)
  */
+export async function generateQuizFromPdfsWithOpenAI(count: number = 10): Promise<QuizQuestion[]> {
+  console.log('🤖 Generating quiz with OpenAI Assistant...');
+  const openai = await getOpenAIForQuiz();
+  
+  const prompt = `יצירת שאלות מבחן - החזר JSON בלבד!
+
+צור ${count} שאלות למבחן רישוי מתווכים מבוססות על קבצי ה-PDF.
+
+פורמט תשובה - JSON בלבד, ללא טקסט נוסף:
+[{"question":"שאלה בעברית","options":["א","ב","ג","ד"],"correctAnswerIndex":0,"explanation":"הסבר קצר"}]
+
+נושאים: מתווכים, חוזים, מקרקעין, מכר דירות, תכנון ובנייה, מיסוי.
+
+חשוב: החזר רק את מערך ה-JSON, ללא הסברים או טקסט נוסף!`;
+
+  try {
+    // Create thread and run
+    const run = await openai.beta.threads.createAndRunPoll({
+      assistant_id: QUIZ_ASSISTANT_ID,
+      thread: {
+        messages: [{ role: 'user', content: prompt }]
+      }
+    });
+    
+    if (run.status !== 'completed') {
+      throw new Error(`Assistant run failed: ${run.status}`);
+    }
+    
+    // Get messages
+    const messages = await openai.beta.threads.messages.list(run.thread_id);
+    const assistantMessage = messages.data.find(m => m.role === 'assistant');
+    
+    if (!assistantMessage || !assistantMessage.content[0]) {
+      throw new Error('No response from assistant');
+    }
+    
+    const content = assistantMessage.content[0];
+    if (content.type !== 'text') {
+      throw new Error('Unexpected response type');
+    }
+    
+    // Clean and parse response
+    let responseText = content.text.value.trim();
+    console.log('📝 Raw OpenAI response length:', responseText.length);
+    
+    // Remove citations
+    responseText = responseText.replace(/【[^】]*】/g, '');
+    // Remove markdown code blocks (handle various formats)
+    responseText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    
+    // Find JSON array - try multiple patterns
+    let jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    
+    // If no array found, check if response is just explanatory text
+    if (!jsonMatch) {
+      console.warn('⚠️ No JSON array in response. Response preview:', responseText.substring(0, 500));
+      // Try to find JSON objects and wrap in array
+      const objectMatches = responseText.match(/\{[\s\S]*?"question"[\s\S]*?\}/g);
+      if (objectMatches && objectMatches.length > 0) {
+        responseText = '[' + objectMatches.join(',') + ']';
+        jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      }
+    }
+    
+    if (!jsonMatch) {
+      console.error('❌ Could not extract JSON from response:', responseText.substring(0, 1000));
+      throw new Error('No JSON array found in response');
+    }
+    
+    let questions: QuizQuestion[];
+    try {
+      questions = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      console.error('❌ JSON parse error:', parseError);
+      console.error('❌ Attempted to parse:', jsonMatch[0].substring(0, 500));
+      throw new Error('Failed to parse JSON response');
+    }
+    
+    // Validate and clean questions
+    const validQuestions = questions
+      .filter(q => q.question && q.options && q.options.length === 4 && typeof q.correctAnswerIndex === 'number')
+      .map(q => ({
+        question: q.question,
+        options: q.options,
+        correctAnswerIndex: q.correctAnswerIndex,
+        explanation: q.explanation || '',
+        bookReference: q.bookReference || undefined
+      }));
+    
+    // Cleanup thread
+    try {
+      await openai.beta.threads.delete(run.thread_id);
+    } catch { /* Ignore cleanup errors */ }
+    
+    console.log(`✅ Generated ${validQuestions.length} questions with OpenAI`);
+    return validQuestions;
+    
+  } catch (error) {
+    console.error('OpenAI quiz generation error:', error);
+    throw new Error('נכשל ביצירת שאלות הבוחן עם OpenAI');
+  }
+}
+
 /**
  * Retry helper with exponential backoff
  */

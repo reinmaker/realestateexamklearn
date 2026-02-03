@@ -16,14 +16,14 @@ import { fetchGeneratedQuestions } from './services/generatedQuestionsService';
 import { CloseIcon, MenuIcon } from './components/icons';
 import { documentContent } from './studyMaterial';
 import { generateQuiz, generateFlashcards, createChatSession, generateTargetedFlashcards, generateTargetedQuiz, generateQuizWithTopicDistribution, analyzeProgress } from './services/aiService';
-import { generateQuizFromPdfs, generateFlashcardsFromPdfs } from './services/geminiService';
+import { generateQuizFromPdfs, generateQuizFromPdfsWithOpenAI, generateFlashcardsFromPdfs } from './services/geminiService';
 import { getDbQuestionsAsQuiz } from './services/supabaseService';
 import { getRandomFlashcards } from './services/flashcardBank';
 import { getCurrentUser, onAuthStateChange, signOut as authSignOut, User } from './services/authService';
 import { saveUserStats, saveUserSession, saveUserAnalysis, getLatestUserAnalysis, getUserStats, UserStats } from './services/userStatsService';
 import { categorizeQuestionsByTopic, calculateTopicProgress, getWeakAndStrongTopics, saveTopicProgress, getTopicProgress } from './services/topicTrackingService';
 import { isAdmin } from './services/adminService';
-import { checkPaymentStatus } from './services/paymentService';
+import { checkPaymentStatus, clearPaymentCache } from './services/paymentService';
 import PaymentBanner from './components/PaymentBanner';
 // Book references are now fetched on-demand when user reaches each question in QuizView
 
@@ -41,8 +41,9 @@ const App: React.FC = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isExamInProgress, setIsExamInProgress] = useState(false);
   const [showReinforcementQuizReadyToast, setShowReinforcementQuizReadyToast] = useState(false);
-  const [hasValidPayment, setHasValidPayment] = useState(false);
-  const [isCheckingPayment, setIsCheckingPayment] = useState(false);
+  // Start with true to avoid blocking UI while checking - will be set to false if check fails
+  const [hasValidPayment, setHasValidPayment] = useState(true);
+  const [isCheckingPayment, setIsCheckingPayment] = useState(true);
   
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[] | null>(null);
   const [reinforcementQuizQuestions, setReinforcementQuizQuestions] = useState<QuizQuestion[] | null>(null);
@@ -634,8 +635,8 @@ const App: React.FC = () => {
           const FIRST_BATCH_SIZE = 5;
           const REMAINING_COUNT = TOTAL_QUESTIONS - FIRST_BATCH_SIZE;
           
-          // Generate first batch of 10 questions
-          const firstBatchQuestions = await generateQuizFromPdfs(FIRST_BATCH_SIZE);
+          // Generate first batch of questions using OpenAI (more reliable than Gemini)
+          const firstBatchQuestions = await generateQuizFromPdfsWithOpenAI(FIRST_BATCH_SIZE);
           
           if (!firstBatchQuestions || firstBatchQuestions.length === 0) {
             throw new Error('No questions generated from PDFs');
@@ -666,7 +667,7 @@ const App: React.FC = () => {
           // Generate remaining questions in the background
           if (REMAINING_COUNT > 0) {
             // Keep generation status as true while loading remaining questions
-            generateQuizFromPdfs(REMAINING_COUNT)
+            generateQuizFromPdfsWithOpenAI(REMAINING_COUNT)
               .then(remainingQuestions => {
                 if (remainingQuestions && remainingQuestions.length > 0) {
                   // Randomize options for remaining questions
@@ -1014,16 +1015,17 @@ const App: React.FC = () => {
   useEffect(() => {
     if (currentUser) {
       if (isAdminUser) {
-        // Admins have free access
+        // Admins have free access - set immediately, no DB check needed
         setHasValidPayment(true);
+        setIsCheckingPayment(false);
       } else {
-        // Check payment status for regular users
+        // Check payment status for regular users (once on login)
         checkUserPaymentStatus(currentUser.id);
         
-        // Periodically re-check payment status (every 10 seconds) to catch revocations immediately
+        // Periodically re-check payment status (every 2 minutes) to catch revocations
         const paymentCheckInterval = setInterval(() => {
           checkUserPaymentStatus(currentUser.id);
-        }, 10000); // Check every 10 seconds
+        }, 120000); // Check every 2 minutes (was 10 seconds - too frequent)
         
         return () => clearInterval(paymentCheckInterval);
       }
@@ -1032,12 +1034,7 @@ const App: React.FC = () => {
     }
   }, [currentUser, isAdminUser]);
 
-  // Also check payment status on route changes to catch revocations immediately
-  useEffect(() => {
-    if (currentUser && !isAdminUser) {
-      checkUserPaymentStatus(currentUser.id);
-    }
-  }, [location.pathname, currentUser, isAdminUser]);
+  // Removed: Route change payment check was redundant and causing slowness
 
   useEffect(() => {
     let isInitialized = false;
@@ -1286,7 +1283,8 @@ const App: React.FC = () => {
   // Handle payment success (called after redirect from Stripe)
   const handlePaymentSuccess = async () => {
     if (currentUser) {
-      // Recheck payment status
+      // Clear cache and recheck payment status
+      clearPaymentCache();
       await checkUserPaymentStatus(currentUser.id);
     }
   };

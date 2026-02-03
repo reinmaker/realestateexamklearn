@@ -894,7 +894,7 @@ export async function determineAnswerAndExplanation(
 
 // Flashcard generation with OpenAI
 async function generateFlashcardsOpenAI(documentContent?: string, count: number = 10): Promise<Flashcard[]> {
-  const openai = getOpenAI();
+  const openai = await getOpenAI();
   
   // Add randomization seed to prompt for variety
   const randomSeed = Math.random().toString(36).substring(7);
@@ -1170,49 +1170,25 @@ export async function analyzeProgress(results: QuizResult[], documentContent: st
   const correctResults = results.filter(r => r.isCorrect);
   const incorrectResults = results.filter(r => !r.isCorrect);
   
-  const correctQuestionsText = correctResults.length > 0 
-    ? correctResults.map((r, i) => `שאלה ${i + 1}: ${r.question}`).join('\n')
-    : 'אין שאלות שנענו נכון';
+  // Keep questions concise - just the question text
+  const correctTopics = correctResults.length > 0 
+    ? correctResults.slice(0, 5).map(r => r.question.substring(0, 100)).join('; ')
+    : '';
     
-  const incorrectQuestionsText = incorrectResults.length > 0
-    ? incorrectResults.map((r, i) => `שאלה ${i + 1}: ${r.question}\nהסבר לתשובה הנכונה: ${r.explanation || 'לא צוין הסבר'}`).join('\n\n')
-    : 'אין שאלות שנענו לא נכון';
+  const incorrectTopics = incorrectResults.length > 0
+    ? incorrectResults.slice(0, 5).map(r => r.question.substring(0, 100)).join('; ')
+    : '';
 
-  const prompt = `אתה מורה מקצועי ומנוסה לניתוח ביצועים במבחן הרישוי למתווכי מקרקעין בישראל. אתה מדבר ישירות אל ${name} ומספק משוב מפורט ומעודד.
+  // Simplified, much shorter prompt for faster response
+  const prompt = `נתח ביצועים במבחן תיווך. כתוב בגוף שני (אתה/לך).
 
-**חשוב מאוד - כתוב בגוף שני (אתה/לך/עליך), לא בגוף שלישי:**
-1. **חוזקות**: זהה עד 3 נושאים מרכזיים שבהם אתה מפגין הבנה טובה. לכל נושא, כתוב ישירות ל${name} בגוף שני (למשל, "אתה עונה נכון על שאלות בנושא X, מה שמעיד על הבנה טובה שלך של..."). אם אין תשובות נכונות, הרשימה צריכה להיות ריקה.
-2. **חולשות**: זהה עד 3 נושאים מרכזיים שבהם אתה מתקשה. לכל נושא, כתוב ישירות ל${name} בגוף שני מה הבעיה ומה צריך לשפר (למשל, "אתה מתקשה בנושא X, כפי שניתן לראות מהתשובות השגויות שלך. מומלץ לך להתמקד ב..."). אם כל התשובות נכונות, הרשימה צריכה להיות ריקה.
-3. **המלצות**: כתוב המלצה תמציתית ומעשית לשיפור הלמידה, כתובה ישירות ל${name} בגוף שני ("אתה צריך", "מומלץ לך", "עליך", "נסה ל..." וכו'). ההמלצה צריכה להיות מבוססת על החולשות שזוהו ולהציע דרכים קונקרטיות לשיפור. אם אין חולשות, ספק המלצה כללית להמשך תרגול.
+תוצאות: ${correctResults.length} נכונות, ${incorrectResults.length} שגויות
 
-שאלות שנענו נכון:
----
-${correctQuestionsText}
----
+שאלות נכונות: ${correctTopics || 'אין'}
+שאלות שגויות: ${incorrectTopics || 'אין'}
 
-שאלות שנענו לא נכון (כולל הסברים לתשובה הנכונה):
----
-${incorrectQuestionsText}
----
-
-חומר הלימוד:
----
-${documentContent}
----
-
-**דרישות לפורמט התשובה:**
-- החזר JSON עם המבנה הבא:
-  {
-    "strengths": ["נושא 1 עם הסבר קצר בגוף שני (אתה/לך)", "נושא 2 עם הסבר קצר בגוף שני", "נושא 3 עם הסבר קצר בגוף שני"],
-    "weaknesses": ["נושא 1 עם הסבר בגוף שני מה הבעיה ומה לשפר", "נושא 2 עם הסבר בגוף שני מה הבעיה ומה לשפר", "נושא 3 עם הסבר בגוף שני מה הבעיה ומה לשפר"],
-    "recommendations": "המלצה תמציתית ומעשית כתובה בגוף שני"
-  }
-- **חשוב מאוד**: כל הטקסט חייב להיות בגוף שני (אתה/לך/עליך/שלך), לא בגוף שלישי (המשתמש/הוא/שלו)
-- כל פריט ב-strengths צריך לכלול הסבר קצר בגוף שני מדוע זה חוזקה (למשל: "אתה מפגין הבנה טובה בנושא X")
-- כל פריט ב-weaknesses צריך לכלול הסבר קצר בגוף שני מה הבעיה ומה צריך לשפר (למשל: "אתה מתקשה בנושא X, מומלץ לך להתמקד ב...")
-- ההמלצות צריכות להיות מעשיות וספציפיות, כתובות בגוף שני
-
-כל התוכן חייב להיות בעברית.`;
+החזר JSON:
+{"strengths":["עד 3 נושאים חזקים"],"weaknesses":["עד 3 נושאים לשיפור"],"recommendations":"המלצה קצרה"}`;
 
   // Use OpenAI first, fallback to Gemini
   try {
@@ -1223,22 +1199,14 @@ ${documentContent}
       
       const response = await openai.responses.create({
         model: openAIModel,
-        instructions: `אתה מורה מקצועי ומנוסה לניתוח ביצועים במבחן הרישוי למתווכי מקרקעין בישראל. תפקידך לספק משוב מפורט ומעודד ישירות למשתמש.
-
-**חשוב מאוד - כתוב בגוף שני, לא בגוף שלישי:**
-- תמיד החזר JSON עם strengths, weaknesses, ו-recommendations
-- strengths: רשימה של עד 3 נושאים שבהם המשתמש מפגין הבנה טובה, עם הסבר קצר לכל נושא בגוף שני (אתה/לך/שלך) מדוע זה חוזקה. אם אין תשובות נכונות, החזר רשימה ריקה.
-- weaknesses: רשימה של עד 3 נושאים שבהם המשתמש מתקשה, עם הסבר קצר לכל נושא בגוף שני (אתה/לך/עליך) מה הבעיה ומה צריך לשפר. אם כל התשובות נכונות, החזר רשימה ריקה.
-- recommendations: המלצה תמציתית ומעשית כתובה בגוף שני (אתה/לך/עליך), מבוססת על החולשות. אם אין חולשות, ספק המלצה כללית.
-- **כל הטקסט חייב להיות בגוף שני (אתה/לך/עליך/שלך), לא בגוף שלישי (המשתמש/הוא/שלו)**
-- כל התוכן בעברית.`,
+        instructions: 'נתח ביצועי מבחן. החזר JSON עם strengths, weaknesses, recommendations. כתוב בעברית בגוף שני.',
         input: prompt,
         text: {
           format: {
             type: 'json_object'
           }
         },
-        temperature: 0.5, // Slightly higher for more detailed explanations
+        temperature: 0.3, // Lower for faster, more consistent responses
       });
 
       const content = response.output_text?.trim();
@@ -1282,16 +1250,16 @@ ${documentContent}
           strengths: {
             type: Type.ARRAY,
             items: { type: Type.STRING },
-            description: "רשימה של עד 3 נושאים מרכזיים שבהם המשתמש מפגין הבנה טובה, כתובים בגוף שני (אתה/לך/שלך). כל פריט צריך לכלול הסבר קצר בגוף שני מדוע זה חוזקה. אם אין תשובות נכונות, הרשימה צריכה להיות ריקה. חשוב: כתוב בגוף שני (אתה עונה נכון...), לא בגוף שלישי (המשתמש עונה...)."
+            description: "עד 3 נושאים חזקים בגוף שני"
           },
           weaknesses: {
             type: Type.ARRAY,
             items: { type: Type.STRING },
-            description: "רשימה של עד 3 נושאים מרכזיים שבהם המשתמש מתקשה, כתובים בגוף שני (אתה/לך/עליך). כל פריט צריך לכלול הסבר קצר בגוף שני מה הבעיה ומה צריך לשפר. אם כל התשובות נכונות, הרשימה צריכה להיות ריקה. חשוב: כתוב בגוף שני (אתה מתקשה...), לא בגוף שלישי (המשתמש מתקשה...)."
+            description: "עד 3 נושאים לשיפור בגוף שני"
           },
           recommendations: {
             type: Type.STRING,
-            description: "המלצה תמציתית לשיפור הלמידה, כתובה ישירות למשתמש בגוף שני (אתה, לך, עליך וכו'). ההמלצה צריכה להיות מבוססת על החולשות. אם אין חולשות, ספק המלצה כללית. חשוב מאוד: כתוב ישירות אל המשתמש בגוף שני (אתה צריך...), לא עליו בגוף שלישי."
+            description: "המלצה קצרה בגוף שני"
           }
         },
         required: ["strengths", "weaknesses", "recommendations"]
