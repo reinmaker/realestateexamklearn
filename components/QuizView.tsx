@@ -488,15 +488,20 @@ const QuizView: React.FC<QuizViewProps> = ({
     }
     
     // Only regenerate if:
-    // 1. Quiz is finished (user completed it) - allow regeneration for new quiz
-    // 2. No questions exist AND user hasn't started - initial load (only for regular quiz)
+    // 1. No questions exist AND user hasn't started - initial load (only for regular quiz)
+    // 2. NEVER auto-regenerate when quiz is finished - user must click "Start New Quiz"
     // Don't regenerate if quiz is in progress (user has questions and hasn't finished)
     const userHasStarted = currentQuestionIndex > 0 || selectedAnswer !== null;
-    const quizIsFinished = isFinished;
     
-    // CRITICAL: If questions exist and quiz is not finished, NEVER regenerate
+    // CRITICAL: If quiz is finished, NEVER auto-regenerate - show the summary screen
+    // User must explicitly click "Start New Quiz" button
+    if (isFinished) {
+      return; // Don't regenerate - stay on summary screen
+    }
+    
+    // CRITICAL: If questions exist, NEVER regenerate
     // This preserves the quiz state when navigating away and back
-    if (questions && questions.length > 0 && !quizIsFinished) {
+    if (questions && questions.length > 0) {
       return; // Don't regenerate - preserve existing quiz
     }
     
@@ -509,9 +514,9 @@ const QuizView: React.FC<QuizViewProps> = ({
     }
     
     // Only regenerate if:
-    // - Quiz is finished (completed), OR
     // - No questions AND user hasn't started AND hasn't regenerated yet (only for regular quiz)
-    const shouldRegenerate = (quizIsFinished || (!questions && !userHasStarted)) && 
+    // - NEVER when quiz is finished (user must click button)
+    const shouldRegenerate = (!questions && !userHasStarted) && 
                              !isLoading && 
                              !hasRegeneratedRef.current && 
                              !hasRegeneratedStored &&
@@ -537,20 +542,9 @@ const QuizView: React.FC<QuizViewProps> = ({
     }
   }, [questions, isLoading, isTargetedQuizGenerating, regenerateQuiz, currentQuestionIndex, selectedAnswer, regenerationStorageKey, isFinished, quizType]);
   
-  // Reset regeneration flag only when quiz finishes (allows regeneration for next quiz)
-  useEffect(() => {
-    if (isFinished) {
-      // Quiz is finished - reset flags so user can start a new quiz
-      hasRegeneratedRef.current = false;
-      regenerationInProgressRef.current = false;
-      // Clear persisted regeneration state so new quiz can be generated
-      try {
-        sessionStorage.removeItem(regenerationStorageKey);
-      } catch (error) {
-        // Ignore sessionStorage errors
-      }
-    }
-  }, [isFinished, regenerationStorageKey]);
+  // NOTE: Don't reset regeneration flags when quiz finishes
+  // The flags should only be reset when user explicitly clicks "Start New Quiz"
+  // This prevents auto-regeneration when viewing the summary screen
 
   useEffect(() => {
     if (questions) {

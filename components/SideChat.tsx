@@ -93,8 +93,8 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen, context, onC
         try {
             const newChat = await createExplanationChatSession(documentContent, context, userName);
             // Handle both OpenAI and Gemini chat sessions
-            // Initial message is more specific - ask about the quiz question that was presented
-            const initialMessage = "אנא הסבר את השאלה ואת הנושא שנלמד. אני רוצה להבין יותר לעומק.";
+            // Initial message explicitly includes the question for better context
+            const initialMessage = `הסבר את השאלה הבאה והנושא שנלמד:\n\n${context}\n\nאני רוצה להבין יותר לעומק.`;
             const initialResponse = newChat.type === 'openai' 
               ? await continueChat(newChat, initialMessage, [])
               : await newChat.sendMessage({ message: initialMessage });
