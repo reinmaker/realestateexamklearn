@@ -1105,12 +1105,18 @@ const QuizView: React.FC<QuizViewProps> = ({
     }
     return null; // Should not happen if questions array is not empty
   }
+  
+  // Safety check - if questions is null but we have a displayQuestion from cache, return early
+  if (!questions || questions.length === 0) {
+    return null;
+  }
+  
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
   // Show "waiting for questions" if we're on the last loaded question and don't have all 25 questions yet
   // Only allow proceeding if we have all 25 questions loaded
   const canProceedFromLastQuestion = isFullyLoaded || questions.length >= totalQuestions;
   const isWaitingForQuestions = showAnswer && isLastQuestion && !canProceedFromLastQuestion && questions.length < totalQuestions;
-  const progressInQuiz = questions ? ((currentQuestionIndex + 1) / totalQuestions) * 100 : 0;
+  const progressInQuiz = ((currentQuestionIndex + 1) / totalQuestions) * 100;
 
 
   // Show payment required overlay if payment is not valid
